@@ -1,12 +1,23 @@
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
+const TIMEOUT_MS = 3000;
 
 type BackendVersion = { name: string; version: string };
 
+function isBackendVersion(value: unknown): value is BackendVersion {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.name === "string" && typeof candidate.version === "string";
+}
+
 async function fetchBackendVersion(): Promise<BackendVersion | null> {
   try {
-    const response = await fetch(`${BACKEND_URL}/version`, { cache: "no-store" });
+    const response = await fetch(`${BACKEND_URL}/version`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
     if (!response.ok) return null;
-    return (await response.json()) as BackendVersion;
+    const parsed: unknown = await response.json();
+    return isBackendVersion(parsed) ? parsed : null;
   } catch {
     return null;
   }

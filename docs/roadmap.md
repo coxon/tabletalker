@@ -2,7 +2,7 @@
 
 TableTalker is built through narrow PRs targeting `main`. This file tracks them.
 
-Shipping target: 2026-05-10 18:00 CST.
+Shipping target: 2026-05-10 18:00 CST (China Standard Time, UTC+08:00).
 
 | # | Branch | Target | Scope | Status |
 |---|---|---|---|---|

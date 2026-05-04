@@ -40,7 +40,8 @@ Quick smoke check once `make dev` is up:
 ```bash
 curl localhost:8000/health           # → {"ok": true}
 curl localhost:3000/api/health       # → {"ok": true, "backend": "..."}
-open  http://localhost:3000          # → "Hello, TableTalker"
+# Open http://localhost:3000 in your browser → "Hello, TableTalker"
+# (mac: `open URL` · linux: `xdg-open URL` · windows: `start URL`)
 ```
 
 Containerization is deferred to a later PR — local-first dev loop comes first.
