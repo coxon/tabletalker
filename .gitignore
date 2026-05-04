@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Node
+node_modules/
+.next/
+.turbo/
+out/
+.pnpm-store/
+*.tsbuildinfo
+.eslintcache
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Runtime artifacts
+data/
+reports/
+logs/
+*.log
+uploads/
+sessions/
+
+# Submission packaging output
+submission/
+*.tar.gz
+
+# Claude local
+.claude/settings.local.json
