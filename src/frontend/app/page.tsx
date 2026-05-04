@@ -25,6 +25,10 @@ async function fetchBackendVersion(): Promise<BackendVersion | null> {
 
 export default async function Home() {
   const backend = await fetchBackendVersion();
+  // Only show the backend URL in development; in production this would leak
+  // internal topology to anyone who loads the page.
+  const debugSuffix =
+    process.env.NODE_ENV === "development" ? ` @ ${BACKEND_URL}` : "";
 
   return (
     <main
@@ -52,8 +56,8 @@ export default async function Home() {
         }}
       >
         {backend
-          ? `backend: ${backend.name} v${backend.version} @ ${BACKEND_URL}`
-          : `backend: unreachable @ ${BACKEND_URL}`}
+          ? `backend: ${backend.name} v${backend.version}${debugSuffix}`
+          : `backend: unreachable${debugSuffix}`}
       </pre>
     </main>
   );

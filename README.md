@@ -39,7 +39,7 @@ Quick smoke check once `make dev` is up:
 
 ```bash
 curl localhost:8000/health           # → {"ok": true}
-curl localhost:3000/api/health       # → {"ok": true, "backend": "..."}
+curl localhost:3000/api/health       # dev → {"ok": true, "backend": "..."}; prod → {"ok": true}
 # Open http://localhost:3000 in your browser → "Hello, TableTalker"
 # (mac: `open URL` · linux: `xdg-open URL` · windows: `start URL`)
 ```
