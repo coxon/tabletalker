@@ -24,6 +24,7 @@ out/
 .pnpm-store/
 *.tsbuildinfo
 .eslintcache
+src/frontend/next-env.d.ts
 
 # Env & secrets
 .env

@@ -1,0 +1,8 @@
+# Local Next.js / pnpm artifacts (also covered by repo .gitignore;
+# duplicated here so this folder stays portable).
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+.eslintcache
+next-env.d.ts
