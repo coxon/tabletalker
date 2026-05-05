@@ -77,7 +77,8 @@ def test_full_pipeline_load_filter_group_aggregate_sort_table(workspace: Path) -
 
 
 def test_forward_reference_rejected(workspace: Path) -> None:
-    _write_sales(workspace)
+    # No CSV write needed: validation rejects the forward ref before any
+    # op runs, so I/O never happens.
     plan = Plan(
         ops=[
             FilterRowsOp(

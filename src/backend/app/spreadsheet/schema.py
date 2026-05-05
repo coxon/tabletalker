@@ -119,6 +119,13 @@ class SelectColumnsOp(_OpBase):
     src: str
     columns: list[str]
 
+    @field_validator("columns")
+    @classmethod
+    def _non_empty_columns(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("select_columns.columns must contain at least one column")
+        return v
+
 
 class FilterRowsOp(_OpBase):
     kind: Literal["filter_rows"]
@@ -235,6 +242,15 @@ class PivotOp(_OpBase):
     columns: str
     values: str
     aggfn: Literal["sum", "mean", "count", "min", "max"] = "sum"
+
+    @field_validator("index")
+    @classmethod
+    def _non_empty_index(cls, v: list[str]) -> list[str]:
+        # Mirrors `group_by.by`: an empty `index` produces a single-row pivot
+        # which is almost never what the LLM meant — reject at schema time.
+        if not v:
+            raise ValueError("pivot.index must contain at least one column")
+        return v
 
 
 class MeltOp(_OpBase):
