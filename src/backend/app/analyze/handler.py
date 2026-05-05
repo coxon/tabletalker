@@ -94,12 +94,29 @@ _TRAP_KEYWORDS: dict[str, str] = {
 
 @dataclass(frozen=True)
 class AnalyzeRequest:
-    """Everything the handler needs once the upload is on disk."""
+    """Everything the handler needs once the upload is on disk.
+
+    Optional fields:
+      - `prelude`: a system-prompt prefix the planner should see *before*
+        its canonical instructions. The follow-up route fills this in
+        with `app.session.prompt.render_followup_system_prompt` so the
+        LLM gets the parent's findings, cohorts, and prior answer. A
+        first-turn analyze leaves it `None` and the planner is unchanged.
+      - `request_id`: caller-supplied id. Follow-ups need
+        `eval_follow_<parent>_q<n>` per contract §1; the default
+        generates a fresh `eval_analysis_<32-hex>` for first turns.
+      - `is_followup`: treats refusal-detection differently — follow-ups
+        of refused parents always refuse without re-running the trap
+        keyword check, since the prelude already encodes that.
+    """
 
     workspace: Path
     filename: str  # already-sanitised
     dataset: str  # display name for evidence; defaults to filename stem
     question: str
+    prelude: str | None = None
+    request_id: str | None = None
+    is_followup: bool = False
 
 
 class AnalyzeFailure(Exception):
@@ -126,7 +143,7 @@ async def handle_analyze(
 ) -> AnalyzeResponse:
     """Run the full pipeline and return a contract-shape response."""
 
-    request_id = _new_request_id()
+    request_id = request.request_id or _new_request_id()
     report_url = f"{_public_base_url()}/reports/{request_id}.html"
 
     # 1. Profile
@@ -135,14 +152,17 @@ async def handle_analyze(
     except ProfilerError as exc:
         raise AnalyzeFailure(str(exc), status_code=422) from exc
 
-    # 2. Refusal heuristic
-    refusal_column = _detect_refusal(request.question, profile)
-    if refusal_column is not None:
-        return _refusal_response(
-            request_id=request_id,
-            report_url=report_url,
-            refusal_column=refusal_column,
-        )
+    # 2. Refusal heuristic — follow-ups of refused parents skip this and
+    #    use the route-level refusal carry-through instead, since the
+    #    prelude already commits to the canonical refusal narrative.
+    if not request.is_followup:
+        refusal_column = _detect_refusal(request.question, profile)
+        if refusal_column is not None:
+            return _refusal_response(
+                request_id=request_id,
+                report_url=report_url,
+                refusal_column=refusal_column,
+            )
 
     # 3. Plan
     try:
@@ -168,6 +188,7 @@ async def handle_analyze(
         question=request.question,
         table_preview=preview,
         workspace_filename=request.filename,
+        prelude=request.prelude,
     )
     try:
         plan = await make_plan(chat_client, plan_req)
@@ -452,6 +473,57 @@ def _new_request_id() -> str:
     enumerate other users' reports inside a single eval window.
     """
     return f"eval_analysis_{secrets.token_hex(16)}"
+
+
+def make_followup_id(parent_id: str, turn_index: int) -> str:
+    """`eval_follow_<parent-suffix>_q<n>` per contract §1.
+
+    `parent-suffix` is the parent's hex tail (the `eval_analysis_` prefix
+    is dropped) so the follow-up id is short but still uniquely traceable
+    back to its parent. `turn_index` is 1-based for the q-counter — the
+    parent itself is turn 0 and follow-ups start at q1.
+    """
+
+    suffix = parent_id.removeprefix("eval_analysis_") or parent_id
+    # Trim further to keep the id readable in logs/URLs; 16 hex chars
+    # still leaves 64 bits of entropy in the path which is plenty for
+    # the eval window.
+    suffix = suffix[:16]
+    return f"eval_follow_{suffix}_q{turn_index}"
+
+
+def build_refusal_carry_through(
+    *, request_id: str, parent_summary: str
+) -> AnalyzeResponse:
+    """Echo a parent refusal into a follow-up response.
+
+    The contract (`docs/refusal-policy.md` §carry-through) requires the
+    follow-up summary to match the parent verbatim — there's no path from
+    "we couldn't analyze this" to a different narrative within the same
+    session. We re-use the parent's `summary` directly and re-render the
+    chart-less refusal HTML keyed under the follow-up's id.
+    """
+
+    rendered = render_report(
+        report_id=request_id,
+        title="无法基于当前数据回答",
+        summary=parent_summary,
+        findings=[],
+        recommendations=[],
+        is_refusal=True,
+        answer=None,
+    )
+    REPORT_STORE.put(request_id, rendered.html)
+    return AnalyzeResponse(
+        id=request_id,
+        report_html_url=f"{_public_base_url()}/reports/{request_id}.html",
+        summary=parent_summary,
+        findings=[],
+        charts=rendered.charts,
+        recommendations=[],
+        is_refusal=True,
+        confidence=_REFUSAL_CONFIDENCE,
+    )
 
 
 # Re-export internal helpers for tests; production code goes via

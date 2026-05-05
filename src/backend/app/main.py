@@ -15,12 +15,14 @@ from fastapi import FastAPI
 
 from app import __version__
 from app.api.analyze import router as analyze_router
+from app.api.follow_up import router as follow_up_router
 from app.api.reports import router as reports_router
 from app.api.spreadsheet import router as spreadsheet_router
 
 app = FastAPI(title="TableTalker Backend", version=__version__)
 app.include_router(spreadsheet_router)
 app.include_router(analyze_router)
+app.include_router(follow_up_router)
 app.include_router(reports_router)
 
 
