@@ -15,7 +15,10 @@ Requirements on the host:
 While the script is running (it blocks on `wait` after launching both
 servers), the following endpoints are reachable:
 
-- Backend: http://localhost:8000 (`/health`, `/v1/analyze`)
+- Backend: http://localhost:8000
+  - `/health` — liveness probe (PR #2, available now)
+  - `/v1/analyze` and `/v1/follow-up` — submission contract endpoints,
+    land in PR #4 (see `docs/submission-contract.md`)
 - Frontend: http://localhost:3000
 
 Press `Ctrl+C` to stop both servers cleanly.

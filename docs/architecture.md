@@ -192,11 +192,13 @@ whether to keep it on by default.
 6. Report renderer produces `reports/{request_id}.html` and embedded
    chart anchors.
 7. Response shape (see `submission-contract.md`):
+
    ```json
    { "id": "...", "report_html_url": "...", "summary": "...",
      "findings": [], "charts": [], "recommendations": [],
      "is_refusal": false, "confidence": 0.88 }
    ```
+
 8. Session store persists profile + findings + cohort names so the next
    `POST /v1/follow-up` can resolve pronouns.
 
