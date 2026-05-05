@@ -111,12 +111,17 @@ class SessionStore:
         with self._lock:
             self._items[session.id] = session
             self._items.move_to_end(session.id)
-            self._evict_locked()
+            evicted = self._evict_locked()
+        # Workspace cleanup outside the lock — `shutil.rmtree` on a slow
+        # filesystem must never block other `get`/`put` callers.
+        for session_to_clean in evicted:
+            _cleanup_workspace(session_to_clean)
 
     def get(self, session_id: str) -> Session | None:
         """Look up by id, refreshing the LRU order on hit."""
 
         now = time.time()
+        evicted: Session | None = None
         with self._lock:
             session = self._items.get(session_id)
             if session is None:
@@ -124,12 +129,15 @@ class SessionStore:
             if (now - session.last_used_at) > self.ttl_seconds:
                 # TTL expired — drop and report miss so the route can
                 # surface a clean 410/404 rather than serve stale state.
-                del self._items[session_id]
-                _cleanup_workspace(session)
-                return None
-            session.last_used_at = now
-            self._items.move_to_end(session_id)
-            return session
+                # Pop under the lock; clean the workspace after release.
+                evicted = self._items.pop(session_id)
+            else:
+                session.last_used_at = now
+                self._items.move_to_end(session_id)
+        if evicted is not None:
+            _cleanup_workspace(evicted)
+            return None
+        return session
 
     def append_turn(self, session_id: str, turn: Turn) -> None:
         """Convenience: append a turn and bump LRU/TTL in one shot."""
@@ -240,20 +248,27 @@ class SessionStore:
         """Test helper — drop every entry."""
 
         with self._lock:
-            for session in list(self._items.values()):
-                _cleanup_workspace(session)
+            evicted = list(self._items.values())
             self._items.clear()
+        # Cleanup outside the lock; see `put`/`get` for the rationale.
+        for session in evicted:
+            _cleanup_workspace(session)
 
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
 
-    def _evict_locked(self) -> None:
+    def _evict_locked(self) -> list[Session]:
         """Drop expired entries, then trim down to `max_sessions`.
+
+        Returns the list of evicted Sessions so the caller can run
+        `_cleanup_workspace` *after* releasing the lock — keeps the
+        critical section O(n) in dict mutations only, never O(rmtree).
 
         Caller must hold `self._lock`.
         """
 
+        evicted: list[Session] = []
         now = time.time()
         # TTL sweep — iterate over a snapshot so we can mutate.
         for sid in [
@@ -261,13 +276,13 @@ class SessionStore:
             for sid, sess in self._items.items()
             if (now - sess.last_used_at) > self.ttl_seconds
         ]:
-            evicted = self._items.pop(sid)
-            _cleanup_workspace(evicted)
+            evicted.append(self._items.pop(sid))
         # LRU trim.
         while len(self._items) > self.max_sessions:
-            evicted_id, evicted = self._items.popitem(last=False)
-            _cleanup_workspace(evicted)
+            evicted_id, evicted_session = self._items.popitem(last=False)
+            evicted.append(evicted_session)
             logger.info("session evicted (LRU cap): %s", evicted_id)
+        return evicted
 
 
 def _cleanup_workspace(session: Session) -> None:
