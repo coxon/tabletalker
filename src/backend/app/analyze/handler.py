@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import secrets
 from dataclasses import dataclass
 from pathlib import Path
@@ -143,7 +144,25 @@ async def handle_analyze(
         )
 
     # 3. Plan
-    preview = _preview_for_planner(request.workspace / request.filename)
+    try:
+        preview = _preview_for_planner(request.workspace / request.filename)
+    except AnalyzeFailure:
+        raise
+    except (
+        ValueError,
+        pd.errors.ParserError,
+        pd.errors.EmptyDataError,
+        # Missing openpyxl/xlrd at runtime → ImportError; permission /
+        # disk problems → OSError. Both should map to a clean 422 rather
+        # than leaking out as a 500 from the deeper pandas stack.
+        ImportError,
+        OSError,
+    ) as exc:
+        logger.warning("preview parse failed for %s: %s", request.filename, exc)
+        raise AnalyzeFailure(
+            "uploaded file could not be parsed; check format and encoding",
+            status_code=422,
+        ) from exc
     plan_req = PlanRequest(
         question=request.question,
         table_preview=preview,
@@ -218,13 +237,26 @@ async def handle_analyze(
 
 
 def _detect_refusal(question: str, profile: TableProfile) -> str | None:
-    """Return the missing-but-asked-about column label, or None."""
+    """Return the missing-but-asked-about column label, or None.
 
-    needle = question.lower()
-    available = {c.name.lower() for c in profile.columns}
-    for keyword, label in _TRAP_KEYWORDS.items():
-        if keyword.lower() in needle and keyword.lower() not in available:
-            return label
+    Uses whole-token matching, not raw substring `in`: "trace monthly
+    sales" must NOT match the `race` trap, and a real `customer_race`
+    column must satisfy availability (substring not exact equality).
+    """
+
+    # `\w` includes Chinese characters under the default `re.UNICODE`
+    # flag, so 种族/民族 tokenise the same way `race` does.
+    tokens = {t.lower() for t in re.findall(r"\w+", question)}
+    available = [c.name.lower() for c in profile.columns]
+    for keyword_term, label in _TRAP_KEYWORDS.items():
+        kw = keyword_term.lower()
+        if kw not in tokens:
+            continue
+        # The trap fires only when no available column even *contains*
+        # the keyword (so `customer_race` would still let us proceed).
+        if any(kw in name for name in available):
+            continue
+        return label
     return None
 
 

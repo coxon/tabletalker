@@ -22,6 +22,7 @@ That keeps it deterministic and trivial to unit-test without a sandbox.
 
 from __future__ import annotations
 
+import keyword
 from dataclasses import dataclass
 from typing import Any
 
@@ -214,6 +215,13 @@ _BINOP_RENDER = {
 }
 
 
+# Functions we know `pandas.eval` / `DataFrame.query` will accept when
+# the grader replays the predicate. Anything outside this set is a bug
+# in the planner — surface it loudly rather than emit an Evidence the
+# replay step can't parse.
+_CALL_RENDER_ALLOWED = frozenset({"abs", "round", "min", "max"})
+
+
 def _render_expr(expr: Expr) -> str:
     if isinstance(expr, LiteralExpr):
         return _render_literal(expr.lit)
@@ -225,6 +233,13 @@ def _render_expr(expr: Expr) -> str:
         op = _BINOP_RENDER.get(expr.op, expr.op)
         return f"({left} {op} {right})"
     if isinstance(expr, CallExpr):
+        if expr.fn not in _CALL_RENDER_ALLOWED:
+            # `pandas.eval` only exposes a small fixed function set; an
+            # unknown name renders into a predicate the grader can't run.
+            raise ValueError(
+                f"call to {expr.fn!r} is not pandas.eval-renderable; "
+                f"allowed: {sorted(_CALL_RENDER_ALLOWED)}"
+            )
         rendered = ", ".join(_render_expr(a) for a in expr.args)
         return f"{expr.fn}({rendered})"
     # Closed union — defensive fallback in case Expr grows a new branch
@@ -239,8 +254,11 @@ def _render_literal(value: Any) -> str:
 
     if value is None:
         return "null"
+    # Python booleans — `pandas.eval` requires capitalised `True` / `False`,
+    # not the lowercased SQL form. Check before `int` because `bool` is
+    # an `int` subclass.
     if isinstance(value, bool):
-        return "true" if value else "false"
+        return "True" if value else "False"
     if isinstance(value, (int, float)):
         return repr(value)
     text = str(value).replace("'", "''")
@@ -252,10 +270,12 @@ def _quote_column(name: str) -> str:
 
     Identifier names render plain (`Age >= 55`); anything containing
     spaces, parens, or non-ASCII gets backtick-quoted to match the spec
-    example `mean(Purchase Amount (USD))`.
+    example `mean(Purchase Amount (USD))`. Python keywords (`class`,
+    `for`, …) also need quoting so `pandas.eval` doesn't choke on the
+    reserved word.
     """
 
-    if name.isidentifier():
+    if name.isidentifier() and not keyword.iskeyword(name):
         return name
     return f"`{name}`"
 
@@ -319,7 +339,7 @@ def _jsonable(value: Any) -> float | int | str:
     they're not numeric in any meaningful "value" sense."""
 
     if isinstance(value, bool):
-        return "true" if value else "false"
+        return "True" if value else "False"
     if isinstance(value, (int, float)):
         return value
     return str(value)

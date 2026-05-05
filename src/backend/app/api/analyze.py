@@ -28,15 +28,12 @@ from app.analyze.handler import (
     handle_analyze,
 )
 from app.analyze.schema import AnalyzeResponse
+from app.limits import UPLOAD_MAX_BYTES
 from app.spreadsheet.llm import HttpChatClient, LLMConfig, LLMConfigError
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["analyze"])
-
-# Shared with the internal /spreadsheet route. Move to a config module
-# if a third caller appears.
-MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MiB
 
 
 @router.post("/analyze", response_model=AnalyzeResponse)
@@ -47,7 +44,11 @@ async def analyze(
 ) -> AnalyzeResponse:
     """Run a single-turn analysis. Returns the contract-shape JSON."""
 
-    if not question.strip():
+    # Normalise once: surrounding whitespace shouldn't change the request
+    # identity, the LLM prompt, or the evidence `dataset` label.
+    clean_question = question.strip()
+    clean_dataset = (dataset or "").strip()
+    if not clean_question:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "question must not be empty")
 
     filename = _safe_filename(file.filename or "upload.csv")
@@ -72,8 +73,8 @@ async def analyze(
             # `dataset` defaults to the file's stem so casual uploads
             # ("sales.csv") still produce a sensible Evidence.dataset.
             # Named datasets pass `dataset=...` in the form.
-            dataset=(dataset or Path(filename).stem),
-            question=question,
+            dataset=clean_dataset or Path(filename).stem,
+            question=clean_question,
         )
         try:
             return await handle_analyze(request, chat_client=chat_client)
@@ -101,9 +102,9 @@ async def _save_upload(file: UploadFile, target: Path) -> None:
     with target.open("wb") as fh:
         while chunk := await file.read(64 * 1024):
             bytes_written += len(chunk)
-            if bytes_written > MAX_UPLOAD_BYTES:
+            if bytes_written > UPLOAD_MAX_BYTES:
                 raise HTTPException(
                     status.HTTP_413_CONTENT_TOO_LARGE,
-                    f"upload exceeds {MAX_UPLOAD_BYTES} bytes",
+                    f"upload exceeds {UPLOAD_MAX_BYTES} bytes",
                 )
             fh.write(chunk)

@@ -32,6 +32,7 @@ import pandas as pd
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel
 
+from app.limits import UPLOAD_MAX_BYTES
 from app.spreadsheet.executor import (
     OpExecutionError,
     PlanValidationError,
@@ -46,8 +47,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/spreadsheet", tags=["spreadsheet"])
 
-# Cap upload size to keep the prototype honest. Real limits land later.
-MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MiB
+# Single shared upload cap — see `app.limits.UPLOAD_MAX_BYTES`. The
+# module-level alias keeps existing `api_module.MAX_UPLOAD_BYTES`
+# imports working without a churn-only refactor.
+MAX_UPLOAD_BYTES = UPLOAD_MAX_BYTES
 PREVIEW_ROWS = 50
 
 
@@ -82,7 +85,16 @@ async def analyze(
             preview = _load_preview(target)
         except HTTPException:
             raise
-        except (ValueError, pd.errors.ParserError, pd.errors.EmptyDataError) as exc:
+        except (
+            ValueError,
+            pd.errors.ParserError,
+            pd.errors.EmptyDataError,
+            # Missing openpyxl/xlrd → ImportError; permission/disk issues
+            # → OSError. Both should map to a clean 422 instead of leaking
+            # as a 500 from the deeper pandas stack.
+            ImportError,
+            OSError,
+        ) as exc:
             logger.warning("preview parse failed for %s: %s", filename, exc)
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_CONTENT,

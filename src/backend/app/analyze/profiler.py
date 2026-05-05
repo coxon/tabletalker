@@ -31,11 +31,12 @@ from typing import Literal
 import pandas as pd
 from pydantic import BaseModel, Field
 
+from app.limits import UPLOAD_MAX_BYTES
+
 # Files larger than this on disk get rejected up-front rather than
-# silently profiled with a slow `read_csv`. The upload cap in
-# `app.api.spreadsheet` is 20 MiB; we mirror that here so this module
-# is honest when called outside the HTTP path (tests, scripts).
-MAX_PROFILE_BYTES = 20 * 1024 * 1024
+# silently profiled with a slow `read_csv`. Reuses the shared upload
+# cap so the HTTP route and the offline path stay in lockstep.
+MAX_PROFILE_BYTES = UPLOAD_MAX_BYTES
 
 # Cap on how many distinct values we enumerate per column. Anything
 # above this gets reported as "high cardinality" without a sample, both
@@ -146,7 +147,17 @@ def _read_full(path: Path) -> pd.DataFrame:
             return pd.read_csv(path)
         if suffix in (".xlsx", ".xls"):
             return pd.read_excel(path)
-    except (ValueError, pd.errors.ParserError, pd.errors.EmptyDataError) as exc:
+    except (
+        # Parser-side problems pandas raises on malformed CSV/XLSX.
+        ValueError,
+        pd.errors.ParserError,
+        pd.errors.EmptyDataError,
+        # `pd.read_excel` raises ImportError when openpyxl/xlrd is
+        # absent at runtime — that's an environment failure, not a 500.
+        ImportError,
+        # Permission denied / disk failure / file vanishing mid-read.
+        OSError,
+    ) as exc:
         raise ProfilerError(f"could not parse {path.name}: {exc}") from exc
     raise ProfilerError(
         f"unsupported file extension {suffix!r}; need .csv / .xlsx / .xls"
