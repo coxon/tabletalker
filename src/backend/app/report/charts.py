@@ -152,37 +152,60 @@ def _empty_svg(title: str) -> str:
 
 
 def _bar_svg(labels: list[str], values: list[float]) -> str:
-    """Vertical bar chart. Numeric labels go above each bar."""
+    """Vertical bar chart. Numeric labels go above each bar.
+
+    Handles negative values by drawing a baseline at the zero-line and
+    growing bars downward. The previous implementation used `value/max_v`
+    which produced negative `height=` attributes (SVG silently renders
+    those as no bar at all) when the answer table contained deltas.
+    """
 
     plot_w = _W - 2 * _PADDING
     plot_h = _H - 2 * _PADDING
     n = len(labels)
     band = plot_w / n
     bar_w = band * 0.6
-    max_v = max(values) if values else 1.0
-    max_v = max_v if max_v > 0 else 1.0  # avoid div-by-zero on all-zero data
+
+    # The drawing window spans from min(0, min_v) up to max(0, max_v) so
+    # the zero-line is always visible — that's where the baseline sits
+    # and what readers expect to anchor a comparison to.
+    if not values:
+        v_min, v_max = 0.0, 1.0
+    else:
+        v_min = min(0.0, min(values))
+        v_max = max(0.0, max(values))
+    span = v_max - v_min or 1.0
+    # Pixel position of the zero-line. Bars grow up from here for
+    # positive values and down from here for negatives.
+    zero_y = _PADDING + plot_h - ((0.0 - v_min) / span) * plot_h
 
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {_W} {_H}" '
         'role="img">',
         f'<rect width="{_W}" height="{_H}" fill="white"/>',
     ]
-    # Y-axis baseline + faint gridline at 50% height for visual scale.
+    # Zero-line — the visual baseline every bar refers to.
     parts.append(
-        f'<line x1="{_PADDING}" y1="{_PADDING + plot_h}" '
-        f'x2="{_W - _PADDING}" y2="{_PADDING + plot_h}" stroke="#bbb"/>'
+        f'<line x1="{_PADDING}" y1="{zero_y:.1f}" '
+        f'x2="{_W - _PADDING}" y2="{zero_y:.1f}" stroke="#bbb"/>'
     )
     for i, (label, value) in enumerate(zip(labels, values, strict=True)):
-        h = (value / max_v) * plot_h
+        bar_h = abs(value / span) * plot_h
         x = _PADDING + i * band + (band - bar_w) / 2
-        y = _PADDING + plot_h - h
+        # Positive bars grow up from the zero-line; negative bars grow
+        # down. SVG y-axis goes downward so "up" means subtracting from
+        # `zero_y`.
+        y = zero_y - bar_h if value >= 0 else zero_y
         colour = _PALETTE[i % len(_PALETTE)]
         parts.append(
             f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_w:.1f}" '
-            f'height="{h:.1f}" fill="{colour}"/>'
+            f'height="{bar_h:.1f}" fill="{colour}"/>'
         )
+        # Numeric label sits just outside the bar — above for positives,
+        # below for negatives, so the digits never overlap the rect.
+        label_y = y - 4 if value >= 0 else y + bar_h + 12
         parts.append(
-            f'<text x="{x + bar_w / 2:.1f}" y="{y - 4:.1f}" text-anchor="middle" '
+            f'<text x="{x + bar_w / 2:.1f}" y="{label_y:.1f}" text-anchor="middle" '
             f'font-family="sans-serif" font-size="11" fill="#333">'
             f"{_format_value(value)}</text>"
         )

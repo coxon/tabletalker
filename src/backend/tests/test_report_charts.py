@@ -109,3 +109,29 @@ def test_length_mismatch_raises() -> None:
             labels=["a", "b"],
             values=[1.0],
         )
+
+
+def test_bar_chart_handles_negative_values_with_baseline() -> None:
+    """Bars below the zero-line must still render with a positive height
+    attribute — the previous `value/max` formula produced negative heights
+    that SVG silently dropped."""
+
+    import re
+
+    image = build_chart(
+        "bar",
+        title="Delta",
+        anchor_id="chart-delta-bar",
+        labels=["A", "B", "C"],
+        values=[10.0, -5.0, 20.0],
+    )
+    # Every <rect> the bar code emits has a positive height.
+    bar_heights = [
+        float(h) for h in re.findall(r'<rect[^>]*height="([\d.]+)"', image.svg)
+    ]
+    # Background rect (full canvas) plus one per bar.
+    assert len(bar_heights) >= 4
+    for h in bar_heights:
+        assert h >= 0
+    # Labels for the negative bar appear as `-5` in the formatted output.
+    assert "-5" in image.svg
