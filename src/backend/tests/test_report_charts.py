@@ -123,13 +123,17 @@ def test_bar_chart_handles_negative_values_with_baseline() -> None:
         labels=["A", "B", "C"],
         values=[10.0, -5.0, 20.0],
     )
-    # Every <rect> the bar code emits has a positive height.
-    bar_heights = [
+    rect_heights = [
         float(h) for h in re.findall(r'<rect[^>]*height="([\d.]+)"', image.svg)
     ]
-    # Background rect (full canvas) plus one per bar.
-    assert len(bar_heights) >= 4
-    for h in bar_heights:
-        assert h >= 0
+    # First rect is the full-canvas background; the rest are data bars,
+    # one per value. They must all be strictly positive — the bug was
+    # that negative values produced height=0 (or a negative attribute
+    # the renderer silently zeroed) and the bar disappeared.
+    canvas_h, *data_bar_h = rect_heights
+    assert canvas_h == 360.0  # _H from charts.py — full canvas
+    assert len(data_bar_h) == 3
+    for h in data_bar_h:
+        assert h > 0, f"data bar height must be > 0 for visibility, got {h}"
     # Labels for the negative bar appear as `-5` in the formatted output.
     assert "-5" in image.svg
