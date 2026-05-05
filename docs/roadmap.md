@@ -11,8 +11,8 @@ Shipping target: 2026-05-10 18:00 CST (China Standard Time, UTC+08:00).
 | 1 | `docs/bootstrap` | 5/4 | README, this roadmap, CodeRabbit config | ✅ |
 | 2 | `chore/skeleton` | 5/5 | Next.js + FastAPI hello, Makefile, CI workflow | ✅ |
 | 3 | `feat/spec-alignment` | 5/5 | Submission-contract docs, refusal policy, scoring map, evaluation-report v0, dataset placement | ✅ |
-| 3.5 | `feat/spreadsheet` | 5/6 | Internal typed-plan engine (15 ops, full LLM-planner path); used by PR #4 as the structured audit/trace layer for evidence extraction | 🚧 |
-| 4 | `feat/analyze-pipeline` | 5/7 | Profiler → ReAct planner → pandas sandbox → evidence extraction → JSON contract response | ☐ |
+| 3.5 | `feat/spreadsheet` | 5/6 | Internal typed-plan engine (15 ops, full LLM-planner path); used by PR #4 as the structured audit/trace layer for evidence extraction | ✅ |
+| 4 | `feat/analyze-pipeline` | 5/7 | Profiler → ReAct planner → pandas sandbox → evidence extraction → JSON contract response | 🚧 |
 | 5 | `feat/report-render` | 5/8 | Jinja HTML report with ≥3 chart types (bar/line/pie/scatter/heatmap/box), `report_html_url` hosting | ☐ |
 | 6 | `feat/followup-session` | 5/8 | Session state, follow-up routing, refusal classifier, multi-turn UI | ☐ |
 | 7 | `feat/web-ui` | 5/9 | File upload, question input, progress states (analyzing / done / refused), report iframe | ☐ |

@@ -7,16 +7,19 @@ mounted from `app.api.*`:
   analyze pipeline below as an audit/trace layer; **not** the
   submission contract.
 - `/v1/analyze` + `/v1/follow-up` — the frozen public contract from
-  `docs/submission-contract.md`. Lands in PR #4.
+  `docs/submission-contract.md`. `analyze` ships in PR #4; `follow-up`
+  in PR #6.
 """
 
 from fastapi import FastAPI
 
 from app import __version__
+from app.api.analyze import router as analyze_router
 from app.api.spreadsheet import router as spreadsheet_router
 
 app = FastAPI(title="TableTalker Backend", version=__version__)
 app.include_router(spreadsheet_router)
+app.include_router(analyze_router)
 
 
 @app.get("/health")
