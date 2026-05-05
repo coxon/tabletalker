@@ -116,8 +116,6 @@ def test_bar_chart_handles_negative_values_with_baseline() -> None:
     attribute — the previous `value/max` formula produced negative heights
     that SVG silently dropped."""
 
-    import re
-
     image = build_chart(
         "bar",
         title="Delta",
