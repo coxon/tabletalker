@@ -40,6 +40,7 @@ from app.analyze.profiler import (
     profile_table,
 )
 from app.analyze.schema import AnalyzeResponse, Evidence, Finding
+from app.report import REPORT_STORE, render_report
 from app.spreadsheet.executor import (
     ExecutionReport,
     OpExecutionError,
@@ -219,12 +220,28 @@ async def handle_analyze(
         detail=narrative.detail,
         evidence=evidence_rows,
     )
+
+    # 8. Render the HTML report and stash it under `request_id` so the
+    #    `GET /reports/{id}.html` route can serve it on demand. We render
+    #    *after* finalisation so the report carries the LLM's narrative
+    #    rather than a placeholder.
+    rendered = render_report(
+        report_id=request_id,
+        title=narrative.title,
+        summary=narrative.summary,
+        findings=[finding],
+        recommendations=narrative.recommendations,
+        is_refusal=False,
+        answer=report.answer,
+    )
+    REPORT_STORE.put(request_id, rendered.html)
+
     return AnalyzeResponse(
         id=request_id,
         report_html_url=report_url,
         summary=narrative.summary,
         findings=[finding],
-        charts=[],  # PR #5 fills this from the rendered report.
+        charts=rendered.charts,
         recommendations=narrative.recommendations,
         is_refusal=False,
         confidence=narrative.confidence,
@@ -263,12 +280,26 @@ def _detect_refusal(question: str, profile: TableProfile) -> str | None:
 def _refusal_response(
     *, request_id: str, report_url: str, refusal_column: str
 ) -> AnalyzeResponse:
+    summary = _REFUSAL_TEMPLATE.format(column=refusal_column)
+    # Refusals still get a rendered HTML report — `docs/refusal-policy.md`
+    # promises the user "what data WAS available" and the contract §5
+    # requires `report_html_url` to resolve. The report is chart-less.
+    rendered = render_report(
+        report_id=request_id,
+        title="无法基于当前数据回答",
+        summary=summary,
+        findings=[],
+        recommendations=[],
+        is_refusal=True,
+        answer=None,
+    )
+    REPORT_STORE.put(request_id, rendered.html)
     return AnalyzeResponse(
         id=request_id,
         report_html_url=report_url,
-        summary=_REFUSAL_TEMPLATE.format(column=refusal_column),
+        summary=summary,
         findings=[],
-        charts=[],
+        charts=rendered.charts,  # always empty for refusals — see _select_and_build_charts
         recommendations=[],
         is_refusal=True,
         confidence=_REFUSAL_CONFIDENCE,
@@ -412,8 +443,15 @@ def _coerce_narrative(data: dict) -> _Narrative:
 
 
 def _new_request_id() -> str:
-    """`eval_analysis_<8-hex>` per the contract example."""
-    return f"eval_analysis_{secrets.token_hex(4)}"
+    """`eval_analysis_<32-hex>` — high-entropy id used as the report key.
+
+    The contract example uses a short suffix, but `request_id` doubles as
+    the URL-visible primary key for `GET /reports/{id}.html` (see
+    `app.api.reports`). 32 hex chars (128 bits of entropy) is the standard
+    floor for unguessable URL tokens — short ids would let an attacker
+    enumerate other users' reports inside a single eval window.
+    """
+    return f"eval_analysis_{secrets.token_hex(16)}"
 
 
 # Re-export internal helpers for tests; production code goes via
