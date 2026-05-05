@@ -19,6 +19,7 @@ we raise here rather than ship a chart link the grader can't resolve.
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -205,24 +206,40 @@ def _pick_axis_columns(
 
 
 def _to_float(value: Any) -> float:
+    """Coerce to float, mapping non-finite / non-numeric inputs to 0.0.
+
+    NaN sneaks in via pandas aggregations on all-null groups; treating
+    it as `0.0` keeps the chart geometry safe. The chart factory does
+    the same — see `app.report.charts._sanitise_values` — but doing it
+    here too means the picker's "all values non-negative?" check below
+    isn't fooled by a `nan >= 0` (which is False, but easy to misread).
+    """
+
     if isinstance(value, bool):  # bool is a numpy/int subclass — coerce explicitly
         return 1.0 if value else 0.0
     if isinstance(value, (int, float)):
-        return float(value)
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
+        result = float(value)
+    else:
+        try:
+            result = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+    return result if math.isfinite(result) else 0.0
 
 
 def _is_numeric(value: Any) -> bool:
+    """True only for *finite* numeric values.
+
+    A NaN-only column should not silently become the picker's value
+    axis; treat non-finite as "not a number we can plot".
+    """
+
     if isinstance(value, bool):
         return False
     if isinstance(value, (int, float)):
-        return True
+        return math.isfinite(value)
     try:
-        float(value)  # type: ignore[arg-type]
-        return True
+        return math.isfinite(float(value))  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return False
 

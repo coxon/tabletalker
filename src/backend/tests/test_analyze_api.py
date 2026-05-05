@@ -56,13 +56,17 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
 
 def _csv_bytes() -> bytes:
-    # 华东=\xe5\x8d\x8e\xe4\xb8\x9c, 华南=\xe5\x8d\x8e\xe5\x8d\x97 — written
-    # out byte-by-byte to keep the file deterministic across editor encoding.
+    # 华东=\xe5\x8d\x8e\xe4\xb8\x9c, 华南=\xe5\x8d\x8e\xe5\x8d\x97,
+    # 华北=\xe5\x8d\x8e\xe5\x8c\x97 — written byte-by-byte to stay
+    # editor-encoding-independent. Three distinct regions so the
+    # report's chart picker has enough rows to emit a line chart on top
+    # of bar+pie (the contract requires ≥3 distinct types).
     return (
         b"region,amount\n"
         b"\xe5\x8d\x8e\xe4\xb8\x9c,100\n"
         b"\xe5\x8d\x8e\xe4\xb8\x9c,200\n"
         b"\xe5\x8d\x8e\xe5\x8d\x97,50\n"
+        b"\xe5\x8d\x8e\xe5\x8c\x97,75\n"
     )
 
 
@@ -145,7 +149,7 @@ def test_analyze_returns_contract_shape(
 
     # Charts: contract-required ≥3 distinct types when not refusing.
     types = {c["type"] for c in body["charts"]}
-    assert {"柱状图", "折线图", "饼图"}.issubset(types | {"柱状图", "折线图", "饼图"})
+    assert {"柱状图", "折线图", "饼图"}.issubset(types), types
     # Anchor invariant: every chart's `html_anchor` exists in the rendered
     # HTML at `/reports/{id}.html` as an `id="..."`.
     report = client.get(f"/reports/{body['id']}.html")

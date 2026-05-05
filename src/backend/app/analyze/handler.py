@@ -443,8 +443,15 @@ def _coerce_narrative(data: dict) -> _Narrative:
 
 
 def _new_request_id() -> str:
-    """`eval_analysis_<8-hex>` per the contract example."""
-    return f"eval_analysis_{secrets.token_hex(4)}"
+    """`eval_analysis_<32-hex>` — high-entropy id used as the report key.
+
+    The contract example uses a short suffix, but `request_id` doubles as
+    the URL-visible primary key for `GET /reports/{id}.html` (see
+    `app.api.reports`). 32 hex chars (128 bits of entropy) is the standard
+    floor for unguessable URL tokens — short ids would let an attacker
+    enumerate other users' reports inside a single eval window.
+    """
+    return f"eval_analysis_{secrets.token_hex(16)}"
 
 
 # Re-export internal helpers for tests; production code goes via

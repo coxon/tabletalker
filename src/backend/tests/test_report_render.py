@@ -76,7 +76,9 @@ def test_refusal_renders_chartless_html() -> None:
     )
     assert rendered.charts == []
     assert "数据集中不包含" in rendered.html
-    assert "refusal" in rendered.html  # the .refusal CSS class fires
+    # Assert the actual class binding the template applies on refusal,
+    # not a loose substring (the word "refusal" could appear in copy).
+    assert 'class="summary refusal"' in rendered.html
 
 
 def test_skips_pie_when_a_value_is_negative() -> None:

@@ -42,3 +42,16 @@ def test_store_evicts_oldest_at_cap() -> None:
     assert s.get("a") is None
     assert s.get("b") == "2"
     assert s.get("c") == "3"
+
+def test_store_rejects_non_positive_max_entries() -> None:
+    """A zero / negative cap would let `_items` grow then trip a KeyError
+    on the very first put — fail-fast at construction time instead."""
+
+    import pytest
+
+    from app.report.store import ReportStore
+
+    with pytest.raises(ValueError):
+        ReportStore(max_entries=0)
+    with pytest.raises(ValueError):
+        ReportStore(max_entries=-1)

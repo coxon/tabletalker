@@ -71,22 +71,28 @@ def build_chart(
     and pie, one per x-tick for line. The factory tolerates short input
     (single-bar charts are legal) but raises on length mismatch since
     that's almost always a caller bug.
+
+    Non-finite numbers (NaN / ±Inf) are coerced to `0.0` before any
+    geometry math runs — pandas' `.mean()` and friends emit NaN on
+    all-null groups, and an SVG `width="nan"` would silently produce a
+    blank chart in every browser.
     """
 
     if len(labels) != len(values):
         raise ValueError(
             f"labels/values length mismatch: {len(labels)} vs {len(values)}"
         )
+    safe_values = _sanitise_values(values)
     if not labels:
         # An empty chart still gets a valid SVG, just with a placeholder.
         # Refusal reports rely on this — they render with zero data.
         svg = _empty_svg(title)
     elif kind == "bar":
-        svg = _bar_svg(labels, values)
+        svg = _bar_svg(labels, safe_values)
     elif kind == "line":
-        svg = _line_svg(labels, values)
+        svg = _line_svg(labels, safe_values)
     elif kind == "pie":
-        svg = _pie_svg(labels, values)
+        svg = _pie_svg(labels, safe_values)
     else:  # pragma: no cover — Literal exhausts the type checker's view
         raise ValueError(f"unknown chart kind {kind!r}")
 
@@ -97,6 +103,12 @@ def build_chart(
         svg=svg,
         type_label=CHART_LABELS[kind],
     )
+
+
+def _sanitise_values(values: list[float]) -> list[float]:
+    """Coerce NaN / ±Inf to 0.0 so SVG math never sees a non-finite input."""
+
+    return [v if math.isfinite(v) else 0.0 for v in values]
 
 
 # ---------------------------------------------------------------------------
@@ -285,10 +297,16 @@ def _pie_svg(labels: list[str], values: list[float]) -> str:
 def _format_value(value: float) -> str:
     """Compact numeric label: integers render plain, floats keep 2 dp.
 
+    Non-finite inputs render as a literal "—" so a chart label never
+    shows "nan" / "inf" to the reader; geometry sanitises separately
+    via `_sanitise_values`.
+
     Avoids `1234.0` and `1234.567899` cluttering the chart; both look
     sloppy in a report someone has to read.
     """
 
+    if not math.isfinite(value):
+        return "—"
     if value == int(value):
         return f"{int(value):,}"
     return f"{value:,.2f}"
