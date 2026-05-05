@@ -112,3 +112,74 @@ def test_invalid_max_sessions_rejected() -> None:
         SessionStore(max_sessions=0)
     with pytest.raises(ValueError):
         SessionStore(ttl_seconds=0)
+
+
+def test_allocate_follow_up_turn_is_unique_per_call(tmp_path: Path) -> None:
+    """Two consecutive allocations against the same session must produce
+    distinct ids — the route relies on this for `_qN` collision safety
+    even before we hand out any responses."""
+
+    store = SessionStore()
+    store.put(_mk_session("p", tmp_path / "p"))
+
+    def factory(sid: str, idx: int) -> str:
+        return f"eval_follow_{sid}_q{idx}"
+
+    id1, idx1 = store.allocate_follow_up_turn("p", id_factory=factory)
+    id2, idx2 = store.allocate_follow_up_turn("p", id_factory=factory)
+    assert id1 != id2
+    assert idx1 + 1 == idx2
+
+    fetched = store.get("p")
+    assert fetched is not None
+    # Two placeholder turns reserved.
+    assert len(fetched.turns) == 2
+
+
+def test_set_turn_response_overwrites_placeholder(tmp_path: Path) -> None:
+    store = SessionStore()
+    store.put(_mk_session("p", tmp_path / "p"))
+    _, turn_index = store.allocate_follow_up_turn(
+        "p", id_factory=lambda sid, idx: f"id-{idx}"
+    )
+    store.set_turn_response(
+        "p", turn_index, question="real question", is_refusal=False
+    )
+    fetched = store.get("p")
+    assert fetched is not None
+    assert fetched.turns[turn_index].question == "real question"
+
+
+def test_discard_turn_rolls_back_placeholder(tmp_path: Path) -> None:
+    store = SessionStore()
+    store.put(_mk_session("p", tmp_path / "p"))
+    _, turn_index = store.allocate_follow_up_turn(
+        "p", id_factory=lambda sid, idx: f"id-{idx}"
+    )
+    store.discard_turn("p", turn_index)
+    fetched = store.get("p")
+    assert fetched is not None
+    assert fetched.turns == []  # placeholder removed; q-counter not consumed
+
+
+def test_allocate_follow_up_raises_keyerror_for_missing_session() -> None:
+    store = SessionStore()
+    with pytest.raises(KeyError):
+        store.allocate_follow_up_turn(
+            "missing", id_factory=lambda sid, idx: "x"
+        )
+
+
+def test_set_turn_response_raises_keyerror_after_eviction(tmp_path: Path) -> None:
+    """Mid-flight eviction surfaces as KeyError so the route maps to 404."""
+
+    store = SessionStore()
+    store.put(_mk_session("p", tmp_path / "p"))
+    _, turn_index = store.allocate_follow_up_turn(
+        "p", id_factory=lambda sid, idx: f"id-{idx}"
+    )
+    store.clear()  # simulate TTL/LRU eviction
+    with pytest.raises(KeyError):
+        store.set_turn_response(
+            "p", turn_index, question="q", is_refusal=False
+        )

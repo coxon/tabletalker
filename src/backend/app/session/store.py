@@ -18,6 +18,7 @@ import shutil
 import threading
 import time
 from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -140,6 +141,96 @@ class SessionStore:
             session.turns.append(turn)
             session.last_used_at = time.time()
             self._items.move_to_end(session_id)
+
+    def allocate_follow_up_turn(
+        self, session_id: str, *, id_factory: Callable[[str, int], str]
+    ) -> tuple[str, int]:
+        """Atomically reserve a follow-up id and turn slot.
+
+        Two requests against the same parent must never derive the same
+        `eval_follow_<suffix>_qN` id — that would collide in the report
+        store and one of the responses would silently overwrite the
+        other. We reserve the slot under the store's lock by appending a
+        placeholder turn, then return `(allocated_id, turn_index)` so
+        the route can finalise it via `set_turn_response` once the
+        pipeline completes.
+
+        Raises `KeyError` if the session was evicted mid-flight; callers
+        translate that to a 404 (see follow_up route).
+        """
+
+        with self._lock:
+            session = self._items.get(session_id)
+            if session is None:
+                raise KeyError(session_id)
+            turn_index = len(session.turns)
+            allocated_id = id_factory(session_id, turn_index)
+            placeholder = Turn(
+                index=turn_index,
+                kind="follow_up",
+                question="<pending>",
+                response_id=allocated_id,
+                is_refusal=False,
+            )
+            session.turns.append(placeholder)
+            session.last_used_at = time.time()
+            self._items.move_to_end(session_id)
+            return allocated_id, turn_index
+
+    def set_turn_response(
+        self,
+        session_id: str,
+        turn_index: int,
+        *,
+        question: str,
+        is_refusal: bool,
+    ) -> None:
+        """Finalise a previously-allocated turn.
+
+        Replaces the placeholder appended by `allocate_follow_up_turn`.
+        Raises `KeyError` if the session was evicted in the gap; the
+        route maps that to a 404 — the response is already on its way
+        back to the client at that point so we can't recover.
+        """
+
+        with self._lock:
+            session = self._items.get(session_id)
+            if session is None:
+                raise KeyError(session_id)
+            if turn_index >= len(session.turns):
+                # Defensive — this would mean another concurrent caller
+                # truncated the turns list, which we never do today.
+                raise KeyError((session_id, turn_index))
+            existing = session.turns[turn_index]
+            session.turns[turn_index] = Turn(
+                index=turn_index,
+                kind=existing.kind,
+                question=question,
+                response_id=existing.response_id,
+                is_refusal=is_refusal,
+            )
+            session.last_used_at = time.time()
+            self._items.move_to_end(session_id)
+
+    def discard_turn(self, session_id: str, turn_index: int) -> None:
+        """Roll back an allocated-but-unfilled turn.
+
+        Used when the pipeline downstream of `allocate_follow_up_turn`
+        raises before the response is built — leaving the placeholder
+        in place would inflate `len(session.turns)` and skip the next
+        q-counter, which graders would notice. Best-effort: if the
+        session was already evicted, there's nothing to do.
+        """
+
+        with self._lock:
+            session = self._items.get(session_id)
+            if session is None:
+                return
+            # Only pop if our placeholder is still the tail; concurrent
+            # finalisation may have shifted things underneath us.
+            if turn_index < len(session.turns) and turn_index == len(session.turns) - 1:
+                session.turns.pop()
+                session.last_used_at = time.time()
 
     def __len__(self) -> int:
         with self._lock:

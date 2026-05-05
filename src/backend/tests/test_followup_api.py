@@ -291,6 +291,23 @@ def test_follow_up_rejects_whitespace_only_question(
     assert resp.status_code == 400
 
 
+def test_follow_up_rejects_unknown_body_key(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`extra='forbid'` surfaces typos like `parentId` as a 422 with a
+    precise field name rather than silently ignoring the unknown key."""
+
+    stub = _SequencedStubClient([_plan_json(), _narrative_json()])
+    monkeypatch.setattr(analyze_module, "HttpChatClient", lambda config: stub)
+    parent = _seed_parent(client, monkeypatch, stub)
+
+    resp = client.post(
+        "/v1/follow-up",
+        json={"parentId": parent["id"], "question": "x"},
+    )
+    assert resp.status_code == 422
+
+
 def test_follow_up_returns_503_when_llm_not_configured(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

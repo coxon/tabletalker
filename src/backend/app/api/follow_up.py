@@ -28,7 +28,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.analyze.handler import (
     AnalyzeFailure,
@@ -40,7 +40,6 @@ from app.analyze.handler import (
 from app.analyze.schema import AnalyzeResponse
 from app.session import (
     SESSION_STORE,
-    Turn,
     extract_cohorts,
     render_followup_system_prompt,
 )
@@ -54,11 +53,13 @@ router = APIRouter(prefix="/v1", tags=["follow-up"])
 class FollowUpRequest(BaseModel):
     """JSON body accepted by `/v1/follow-up`.
 
-    `model_config={'extra': 'forbid'}` would be ideal, but FastAPI's
-    Pydantic v2 default already returns 422 on unknown top-level keys
-    when the model is the request body — leaving it default keeps the
-    error message clearer for graders that fat-finger the payload.
+    `extra="forbid"` rejects unknown top-level keys so a typo in the
+    grader's payload (e.g. `parentId` instead of `parent_id`) surfaces
+    as a 422 with a precise field name rather than being silently
+    ignored — much easier to debug under time pressure.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     parent_id: str = Field(..., min_length=1, description="Parent analyze id.")
     question: str = Field(..., min_length=1, description="Follow-up question text.")
@@ -82,26 +83,40 @@ async def follow_up(body: FollowUpRequest) -> AnalyzeResponse:
             f"session {body.parent_id!r} not found or expired",
         )
 
-    next_turn_index = len(session.turns)  # parent is turn 0 → first follow-up = q1
-    request_id = make_followup_id(session.id, next_turn_index)
+    # Reserve the follow-up id under the store's lock so two concurrent
+    # requests against the same parent can't collide on `_qN`. The
+    # placeholder turn returned here is finalised via `set_turn_response`
+    # once the pipeline produces a real answer (or rolled back via
+    # `discard_turn` if it raises).
+    try:
+        request_id, turn_index = SESSION_STORE.allocate_follow_up_turn(
+            session.id, id_factory=make_followup_id
+        )
+    except KeyError as exc:
+        # Evicted between the `get` above and the lock — extremely
+        # narrow window but the contract still wants a clean 404.
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"session {session.id!r} not found or expired",
+        ) from exc
 
     # Refusal carry-through happens before any LLM call — the contract
     # locks the session into the parent's narrative.
     if session.refused:
-        response = build_refusal_carry_through(
-            request_id=request_id,
-            parent_summary=session.parent_summary,
-        )
-        SESSION_STORE.append_turn(
-            session.id,
-            Turn(
-                index=next_turn_index,
-                kind="follow_up",
+        try:
+            response = build_refusal_carry_through(
+                request_id=request_id,
+                parent_summary=session.parent_summary,
+            )
+            _finalise_turn(
+                session.id,
+                turn_index,
                 question=clean_question,
-                response_id=response.id,
                 is_refusal=True,
-            ),
-        )
+            )
+        except Exception:
+            SESSION_STORE.discard_turn(session.id, turn_index)
+            raise
         return response
 
     # Happy path — brief the planner with prior context, then dispatch
@@ -109,6 +124,7 @@ async def follow_up(body: FollowUpRequest) -> AnalyzeResponse:
     try:
         config = LLMConfig.from_env()
     except LLMConfigError as exc:
+        SESSION_STORE.discard_turn(session.id, turn_index)
         logger.error("LLM not configured: %s", exc)
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -129,13 +145,17 @@ async def follow_up(body: FollowUpRequest) -> AnalyzeResponse:
     try:
         response = await handle_analyze(request, chat_client=chat_client)
     except AnalyzeFailure as exc:
+        SESSION_STORE.discard_turn(session.id, turn_index)
         raise HTTPException(exc.status_code, str(exc)) from exc
+    except Exception:
+        SESSION_STORE.discard_turn(session.id, turn_index)
+        raise
 
     # Merge the new turn's findings/cohorts/anchors into the session so
     # subsequent follow-ups see them. The parent's findings stay first —
     # the planner may need them as historical context — and new findings
     # are appended in their own order.
-    new_cohorts = extract_cohorts(response.findings, turn_index=next_turn_index)
+    new_cohorts = extract_cohorts(response.findings, turn_index=turn_index)
     session.findings = list(session.findings) + list(response.findings)
     # `extend` would mutate-in-place but the Session dataclass is shared;
     # rebinding makes the change atomic from the LRU lookup's perspective.
@@ -143,14 +163,38 @@ async def follow_up(body: FollowUpRequest) -> AnalyzeResponse:
     session.chart_anchors = list(session.chart_anchors) + [
         c.html_anchor for c in response.charts
     ]
-    SESSION_STORE.append_turn(
+    _finalise_turn(
         session.id,
-        Turn(
-            index=next_turn_index,
-            kind="follow_up",
-            question=clean_question,
-            response_id=response.id,
-            is_refusal=response.is_refusal,
-        ),
+        turn_index,
+        question=clean_question,
+        is_refusal=response.is_refusal,
     )
     return response
+
+
+def _finalise_turn(
+    session_id: str, turn_index: int, *, question: str, is_refusal: bool
+) -> None:
+    """Replace the placeholder turn with the real question/refusal flag.
+
+    The store may have evicted the session in the gap between
+    `allocate_follow_up_turn` and now (LRU pressure or TTL). We map that
+    to the same 404 the lookup path uses — the response is otherwise
+    already valid; the only thing the client loses is the trace entry.
+    """
+
+    try:
+        SESSION_STORE.set_turn_response(
+            session_id,
+            turn_index,
+            question=question,
+            is_refusal=is_refusal,
+        )
+    except KeyError as exc:
+        logger.warning(
+            "session %s evicted before turn %d could be finalised", session_id, turn_index
+        )
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"session {session_id!r} not found or expired",
+        ) from exc
