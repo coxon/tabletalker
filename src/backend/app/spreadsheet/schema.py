@@ -4,7 +4,7 @@ A `Plan` is a DAG of `Op`s. Each Op has a unique `out` name; downstream
 Ops reference upstream outputs by name. This avoids implicit pipelining
 and lets join/pivot take multiple inputs cleanly.
 
-Op kinds in this PR (PR #3 — first 15 of 30):
+Op kinds in this PR (PR #3.5 — first 15 of 30):
   load_csv, load_excel, select_columns, filter_rows, add_column,
   group_by, aggregate, sort, head, tail, join, pivot, melt,
   to_table, to_chart
@@ -88,7 +88,7 @@ class _OpBase(BaseModel):
 class LoadCsvOp(_OpBase):
     kind: Literal["load_csv"]
     path: str
-    # Encoding/delimiter omitted — autodetect in PR #3, expose later if needed.
+    # Encoding/delimiter omitted — autodetect in PR #3.5, expose later if needed.
 
 
 class LoadExcelOp(_OpBase):

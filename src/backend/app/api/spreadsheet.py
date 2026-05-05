@@ -1,11 +1,19 @@
-"""POST /spreadsheet/analyze — full pipeline endpoint.
+"""POST /spreadsheet/analyze — internal typed-plan pipeline endpoint.
+
+This endpoint is **internal**. It is NOT the submission contract — see
+`docs/submission-contract.md` for the frozen `/v1/analyze` shape that
+the organizer's grader hits. This route exists so PR #4 can wire the
+typed-plan engine in as an audit/trace layer beneath the public
+`/v1/analyze` handler, and so the engine can be exercised in isolation
+during development.
 
 Multipart upload of (file, question). The handler:
   1. Saves the upload into a per-request workspace dir.
   2. Loads a small preview to give the planner column names.
   3. Asks the planner for a Plan.
   4. Runs the executor.
-  5. Returns { plan, result, verses }.
+  5. Returns { plan, result, verses } — internal shape, NOT the
+     submission contract.
 
 The workspace dir is created under `tempfile.gettempdir()` and is the
 only place the executor's load ops can read from — see
@@ -41,6 +49,14 @@ PREVIEW_ROWS = 50
 
 
 class AnalyzeResponse(BaseModel):
+    """Internal pipeline response shape.
+
+    Distinct from the submission contract (`docs/submission-contract.md`),
+    which carries `id / report_html_url / summary / findings / charts /
+    recommendations / is_refusal / confidence`. PR #4's `/v1/analyze`
+    handler will adapt this internal shape into the public contract.
+    """
+
     plan: Plan
     result: dict[str, Any]  # the answer payload (table or chart)
     verses: list[TableVerse]
