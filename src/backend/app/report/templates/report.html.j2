@@ -1,0 +1,85 @@
+{# Report template — keep it inline-only. The grader sandbox blocks
+   remote CDNs (`docs/submission-contract.md` §2). #}<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>{{ title }}</title>
+<style>
+  body { font-family: -apple-system, "Helvetica Neue", "PingFang SC", sans-serif;
+         max-width: 880px; margin: 32px auto; color: #222; line-height: 1.6; }
+  h1   { border-bottom: 2px solid #3366cc; padding-bottom: 8px; }
+  h2   { margin-top: 32px; }
+  .summary { background: #f4f7fb; padding: 16px 20px; border-radius: 6px; }
+  .finding { margin: 24px 0; padding: 16px; border: 1px solid #e3e3e3;
+             border-radius: 6px; }
+  .finding h3 { margin-top: 0; }
+  table { border-collapse: collapse; width: 100%; margin-top: 8px; }
+  th, td { border: 1px solid #ddd; padding: 6px 10px; font-size: 13px;
+           text-align: left; }
+  th { background: #f4f7fb; }
+  .chart { margin: 16px 0; }
+  .chart svg { display: block; max-width: 100%; height: auto;
+               border: 1px solid #eee; }
+  .meta { font-size: 12px; color: #888; margin-top: 24px; }
+  .refusal { color: #b8202c; font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>{{ title }}</h1>
+
+<section class="summary{% if is_refusal %} refusal{% endif %}">
+  <p>{{ summary }}</p>
+</section>
+
+{% if charts %}
+<h2>关键图表</h2>
+{% for chart in charts %}
+<section class="chart" id="{{ chart.anchor_id }}">
+  <h3>{{ chart.type_label }} · {{ chart.title }}</h3>
+  {{ chart.svg | safe }}
+</section>
+{% endfor %}
+{% endif %}
+
+{% if findings %}
+<h2>分析结论</h2>
+{% for finding in findings %}
+<section class="finding">
+  <h3>{{ finding.title }}</h3>
+  <p>{{ finding.detail }}</p>
+  {% if finding.evidence %}
+  <table>
+    <thead><tr>
+      <th>数据集</th><th>表</th><th>过滤条件</th><th>聚合</th>
+      <th>取值</th><th>行数</th>
+    </tr></thead>
+    <tbody>
+    {% for ev in finding.evidence %}
+      <tr>
+        <td>{{ ev.dataset }}</td>
+        <td>{{ ev.table }}</td>
+        <td><code>{{ ev.filters or '—' }}</code></td>
+        <td><code>{{ ev.aggregation }}</code></td>
+        <td>{{ ev.value }}</td>
+        <td>{{ ev.row_count if ev.row_count is not none else '—' }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+{% endfor %}
+{% endif %}
+
+{% if recommendations %}
+<h2>行动建议</h2>
+<ul>
+{% for rec in recommendations %}
+  <li>{{ rec }}</li>
+{% endfor %}
+</ul>
+{% endif %}
+
+<p class="meta">报告 ID：{{ report_id }}</p>
+</body>
+</html>
