@@ -13,6 +13,7 @@ runtime overhead when idle.
 
 from __future__ import annotations
 
+import itertools
 import logging
 import shutil
 import threading
@@ -128,14 +129,19 @@ class SessionStore:
         self.ttl_seconds = ttl_seconds
         self._lock = threading.RLock()
         self._items: OrderedDict[str, Session] = OrderedDict()
-        # Per-allocation lock cache: maps (session_id, turn_index) → the
-        # `_follow_up_lock` that `allocate_follow_up_turn` acquired. We
-        # need the entry here because the matching finalise/discard call
-        # may run after the session itself was evicted (TTL/LRU race) —
-        # without a side-channel, the lock would never be released and
-        # the next allocation against any *new* session reusing that id
-        # would deadlock.
-        self._allocation_locks: dict[tuple[str, int], threading.Lock] = {}
+        # Per-allocation lock cache: maps a *unique* allocation token →
+        # the `_follow_up_lock` that `allocate_follow_up_turn` acquired.
+        # The token is monotonic and never reused, so a late
+        # finalise/discard from an old session can't accidentally pop the
+        # entry belonging to a new session that reused the same
+        # `(session_id, turn_index)` tuple after eviction. Without this,
+        # an old request could release the *new* session's lock — that
+        # both reopens the interleaving bug per-session locking is meant
+        # to fix and strands the old lock forever. The token is opaque to
+        # callers; routes pass back what `allocate_follow_up_turn`
+        # returned and never construct one themselves.
+        self._allocation_locks: dict[int, threading.Lock] = {}
+        self._allocation_token_counter = itertools.count()
 
     def put(self, session: Session) -> None:
         """Insert / update a session; evict stale + over-cap entries."""
@@ -184,16 +190,20 @@ class SessionStore:
 
     def allocate_follow_up_turn(
         self, session_id: str, *, id_factory: Callable[[str, int], str]
-    ) -> tuple[str, int]:
+    ) -> tuple[str, int, int]:
         """Atomically reserve a follow-up id and turn slot.
 
         Two requests against the same parent must never derive the same
         `eval_follow_<suffix>_qN` id — that would collide in the report
         store and one of the responses would silently overwrite the
         other. We reserve the slot under the store's lock by appending a
-        placeholder turn, then return `(allocated_id, turn_index)` so
-        the route can finalise it via `set_turn_response` once the
-        pipeline completes.
+        placeholder turn, then return `(allocated_id, turn_index,
+        allocation_token)` so the route can finalise it via
+        `set_turn_response` once the pipeline completes. The token is an
+        opaque process-unique handle; callers must pass it back to
+        `set_turn_response` / `discard_turn` so we release the *right*
+        per-session lock even if the original session was evicted and
+        another one reused its id and `turn_index`.
 
         Per-session serialisation: this method also takes the session's
         `_follow_up_lock` and *keeps it held* across the LLM round-trip;
@@ -235,17 +245,21 @@ class SessionStore:
                 session.turns.append(placeholder)
                 session.last_used_at = time.time()
                 self._items.move_to_end(session_id)
-                # Register the lock so set/discard can find it even if
-                # the session is evicted before they run.
-                self._allocation_locks[(session_id, turn_index)] = session_lock
-                return allocated_id, turn_index
+                # Mint a unique allocation token. Monotonic counters can't
+                # collide across the process lifetime, so a stale
+                # finaliser holding a token from an evicted session can
+                # never accidentally release the lock of a *new* session
+                # that reused `(session_id, turn_index)`.
+                token = next(self._allocation_token_counter)
+                self._allocation_locks[token] = session_lock
+                return allocated_id, turn_index, token
         except BaseException:
             # On failure release the per-session lock; the caller never
             # got a slot they're responsible for.
             session_lock.release()
             raise
 
-    def _release_allocation_lock(self, session_id: str, turn_index: int) -> None:
+    def _release_allocation_lock(self, token: int) -> None:
         """Pop and release the lock that `allocate_follow_up_turn` took.
 
         Idempotent: extra calls (e.g. from the `finally` of a path that
@@ -255,7 +269,7 @@ class SessionStore:
         """
 
         with self._lock:
-            lock = self._allocation_locks.pop((session_id, turn_index), None)
+            lock = self._allocation_locks.pop(token, None)
         if lock is not None:
             try:
                 lock.release()
@@ -272,11 +286,15 @@ class SessionStore:
         *,
         question: str,
         is_refusal: bool,
+        allocation_token: int,
     ) -> None:
         """Finalise a previously-allocated turn.
 
         Replaces the placeholder appended by `allocate_follow_up_turn`
         and releases the matching per-session lock acquired there.
+        `allocation_token` must be the value returned from the paired
+        allocate — that's how we identify the *exact* lock to release
+        even after id reuse.
 
         Raises `KeyError` if the session was evicted in the gap; the
         route maps that to a 404 — the response is already on its way
@@ -314,17 +332,23 @@ class SessionStore:
                 session.last_used_at = time.time()
                 self._items.move_to_end(session_id)
         finally:
-            self._release_allocation_lock(session_id, turn_index)
+            self._release_allocation_lock(allocation_token)
 
-    def discard_turn(self, session_id: str, turn_index: int) -> None:
+    def discard_turn(
+        self, session_id: str, turn_index: int, *, allocation_token: int
+    ) -> None:
         """Roll back an allocated-but-unfilled turn.
 
         Used when the pipeline downstream of `allocate_follow_up_turn`
         raises before the response is built. Per-session serialisation
         guarantees the placeholder is the tail at this point, so removal
-        is unconditional — the q-counter never skips. Releases the
-        per-session lock on the way out (matching the acquire in
-        `allocate_follow_up_turn`).
+        is unconditional under the per-session lock — the q-counter
+        never skips. `allocation_token` releases the right per-session
+        lock even after id reuse.
+
+        Idempotent: extra checks ensure a stale double-discard (or a
+        retry against a slot already reused by a fresh allocation) can't
+        accidentally pop a finalised turn.
         """
 
         try:
@@ -333,13 +357,18 @@ class SessionStore:
                 if session is None:
                     return  # already evicted; nothing to discard
                 # Per-session serialisation invariant: the placeholder is
-                # the tail. Defensive bound check still guards against a
-                # double-discard call.
+                # the tail. Bound + sentinel checks guard against the
+                # stale-retry case where `turn_index` was already
+                # finalised and the slot may have been consumed by a
+                # later allocation — popping then would silently delete
+                # a real turn.
                 if turn_index < len(session.turns):
-                    session.turns.pop(turn_index)
-                    session.last_used_at = time.time()
+                    existing = session.turns[turn_index]
+                    if existing.question == PENDING_QUESTION:
+                        session.turns.pop(turn_index)
+                        session.last_used_at = time.time()
         finally:
-            self._release_allocation_lock(session_id, turn_index)
+            self._release_allocation_lock(allocation_token)
 
     def __len__(self) -> int:
         with self._lock:

@@ -128,12 +128,17 @@ def test_allocate_follow_up_turn_is_unique_per_call(tmp_path: Path) -> None:
     # Allocate must be paired with set/discard in real usage so the
     # per-session lock is released; mirror that here so the second
     # allocation isn't blocked on its own predecessor.
-    id1, idx1 = store.allocate_follow_up_turn("p", id_factory=factory)
-    store.set_turn_response("p", idx1, question="q1", is_refusal=False)
-    id2, idx2 = store.allocate_follow_up_turn("p", id_factory=factory)
-    store.set_turn_response("p", idx2, question="q2", is_refusal=False)
+    id1, idx1, tok1 = store.allocate_follow_up_turn("p", id_factory=factory)
+    store.set_turn_response(
+        "p", idx1, question="q1", is_refusal=False, allocation_token=tok1
+    )
+    id2, idx2, tok2 = store.allocate_follow_up_turn("p", id_factory=factory)
+    store.set_turn_response(
+        "p", idx2, question="q2", is_refusal=False, allocation_token=tok2
+    )
     assert id1 != id2
     assert idx1 + 1 == idx2
+    assert tok1 != tok2
 
     fetched = store.get("p")
     assert fetched is not None
@@ -144,11 +149,15 @@ def test_allocate_follow_up_turn_is_unique_per_call(tmp_path: Path) -> None:
 def test_set_turn_response_overwrites_placeholder(tmp_path: Path) -> None:
     store = SessionStore()
     store.put(_mk_session("p", tmp_path / "p"))
-    _, turn_index = store.allocate_follow_up_turn(
+    _, turn_index, token = store.allocate_follow_up_turn(
         "p", id_factory=lambda sid, idx: f"id-{idx}"
     )
     store.set_turn_response(
-        "p", turn_index, question="real question", is_refusal=False
+        "p",
+        turn_index,
+        question="real question",
+        is_refusal=False,
+        allocation_token=token,
     )
     fetched = store.get("p")
     assert fetched is not None
@@ -158,10 +167,10 @@ def test_set_turn_response_overwrites_placeholder(tmp_path: Path) -> None:
 def test_discard_turn_rolls_back_placeholder(tmp_path: Path) -> None:
     store = SessionStore()
     store.put(_mk_session("p", tmp_path / "p"))
-    _, turn_index = store.allocate_follow_up_turn(
+    _, turn_index, token = store.allocate_follow_up_turn(
         "p", id_factory=lambda sid, idx: f"id-{idx}"
     )
-    store.discard_turn("p", turn_index)
+    store.discard_turn("p", turn_index, allocation_token=token)
     fetched = store.get("p")
     assert fetched is not None
     assert fetched.turns == []  # placeholder removed; q-counter not consumed
@@ -180,13 +189,17 @@ def test_set_turn_response_raises_keyerror_after_eviction(tmp_path: Path) -> Non
 
     store = SessionStore()
     store.put(_mk_session("p", tmp_path / "p"))
-    _, turn_index = store.allocate_follow_up_turn(
+    _, turn_index, token = store.allocate_follow_up_turn(
         "p", id_factory=lambda sid, idx: f"id-{idx}"
     )
     store.clear()  # simulate TTL/LRU eviction
     with pytest.raises(KeyError):
         store.set_turn_response(
-            "p", turn_index, question="q", is_refusal=False
+            "p",
+            turn_index,
+            question="q",
+            is_refusal=False,
+            allocation_token=token,
         )
 
 
@@ -199,6 +212,11 @@ def test_concurrent_followups_serialised_per_session(tmp_path: Path) -> None:
     the next allocation skipped to q3. With per-session serialisation,
     B blocks until A finishes, so the q-counter is gap-free even under
     concurrent failures.
+
+    Synchronises on `threading.Event` rather than `time.sleep` so a CI
+    box that schedules the worker thread late doesn't accidentally
+    short-circuit the assertion: if B never started, "not finished"
+    would be vacuously true and a broken allocator could pass.
     """
 
     import threading
@@ -210,26 +228,38 @@ def test_concurrent_followups_serialised_per_session(tmp_path: Path) -> None:
         return f"eval_follow_p_q{idx + 1}"
 
     # Allocate A (q1).
-    id_a, idx_a = store.allocate_follow_up_turn("p", id_factory=factory)
+    id_a, idx_a, tok_a = store.allocate_follow_up_turn("p", id_factory=factory)
     assert id_a.endswith("_q1")
 
     # B's allocate must block until A releases. Run it on a thread.
     b_result: dict = {}
+    started = threading.Event()
+    finished = threading.Event()
 
     def allocate_b() -> None:
-        b_result["id"], b_result["idx"] = store.allocate_follow_up_turn(
-            "p", id_factory=factory
-        )
+        started.set()
+        try:
+            b_result["id"], b_result["idx"], b_result["token"] = (
+                store.allocate_follow_up_turn("p", id_factory=factory)
+            )
+        finally:
+            finished.set()
 
     t = threading.Thread(target=allocate_b)
     t.start()
-    # Give B time to attempt acquire and block.
-    time.sleep(0.05)
-    assert not b_result, "B should be blocked on the per-session lock"
+    # Wait for B to actually enter `allocate_b` before checking it's
+    # blocked — otherwise a not-yet-scheduled thread fakes contention.
+    assert started.wait(timeout=1.0), "B never started"
+    # B should still be parked on the per-session lock; if `finished`
+    # gets set inside this short window, the allocator failed to
+    # serialise.
+    assert not finished.wait(timeout=0.1), (
+        "B should be blocked on the per-session lock"
+    )
 
     # A fails — discard. After this B unblocks and gets q1 (the slot A
     # vacated), keeping the q-sequence gap-free.
-    store.discard_turn("p", idx_a)
+    store.discard_turn("p", idx_a, allocation_token=tok_a)
 
     t.join(timeout=1.0)
     assert not t.is_alive()
@@ -243,11 +273,50 @@ def test_set_turn_response_rejects_double_finalisation(tmp_path: Path) -> None:
 
     store = SessionStore()
     store.put(_mk_session("p", tmp_path / "p"))
-    _, turn_index = store.allocate_follow_up_turn(
+    _, turn_index, token = store.allocate_follow_up_turn(
         "p", id_factory=lambda sid, idx: f"id-{idx}"
     )
-    store.set_turn_response("p", turn_index, question="real", is_refusal=False)
+    store.set_turn_response(
+        "p",
+        turn_index,
+        question="real",
+        is_refusal=False,
+        allocation_token=token,
+    )
     # The placeholder is gone; a second finalisation must raise rather
     # than silently overwriting a completed turn.
     with pytest.raises(RuntimeError, match="already finalised"):
-        store.set_turn_response("p", turn_index, question="oops", is_refusal=False)
+        store.set_turn_response(
+            "p",
+            turn_index,
+            question="oops",
+            is_refusal=False,
+            allocation_token=token,
+        )
+
+
+def test_discard_turn_skips_finalised_turn(tmp_path: Path) -> None:
+    """A stale `discard_turn` retry against an already-finalised slot
+    must NOT pop a real turn. CR scenario: caller's exception handler
+    fires after `set_turn_response` already succeeded; without the
+    sentinel check, `discard_turn` would silently delete the just-saved
+    answer."""
+
+    store = SessionStore()
+    store.put(_mk_session("p", tmp_path / "p"))
+    _, turn_index, token = store.allocate_follow_up_turn(
+        "p", id_factory=lambda sid, idx: f"id-{idx}"
+    )
+    store.set_turn_response(
+        "p",
+        turn_index,
+        question="real",
+        is_refusal=False,
+        allocation_token=token,
+    )
+    # A stale discard against the already-finalised slot must be a no-op.
+    store.discard_turn("p", turn_index, allocation_token=token)
+    fetched = store.get("p")
+    assert fetched is not None
+    assert len(fetched.turns) == 1
+    assert fetched.turns[0].question == "real"

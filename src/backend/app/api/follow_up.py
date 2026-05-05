@@ -87,9 +87,12 @@ async def follow_up(body: FollowUpRequest) -> AnalyzeResponse:
     # requests against the same parent can't collide on `_qN`. The
     # placeholder turn returned here is finalised via `set_turn_response`
     # once the pipeline produces a real answer (or rolled back via
-    # `discard_turn` if it raises).
+    # `discard_turn` if it raises). The token is opaque — we just thread
+    # it back through to the matching set/discard so the *right*
+    # per-session lock is released even if the session was evicted and
+    # its id reused in the meantime.
     try:
-        request_id, turn_index = SESSION_STORE.allocate_follow_up_turn(
+        request_id, turn_index, alloc_token = SESSION_STORE.allocate_follow_up_turn(
             session.id, id_factory=make_followup_id
         )
     except KeyError as exc:
@@ -113,9 +116,12 @@ async def follow_up(body: FollowUpRequest) -> AnalyzeResponse:
                 turn_index,
                 question=clean_question,
                 is_refusal=True,
+                allocation_token=alloc_token,
             )
         except Exception:
-            SESSION_STORE.discard_turn(session.id, turn_index)
+            SESSION_STORE.discard_turn(
+                session.id, turn_index, allocation_token=alloc_token
+            )
             raise
         return response
 
@@ -124,7 +130,9 @@ async def follow_up(body: FollowUpRequest) -> AnalyzeResponse:
     try:
         config = LLMConfig.from_env()
     except LLMConfigError as exc:
-        SESSION_STORE.discard_turn(session.id, turn_index)
+        SESSION_STORE.discard_turn(
+            session.id, turn_index, allocation_token=alloc_token
+        )
         logger.error("LLM not configured: %s", exc)
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -145,10 +153,14 @@ async def follow_up(body: FollowUpRequest) -> AnalyzeResponse:
     try:
         response = await handle_analyze(request, chat_client=chat_client)
     except AnalyzeFailure as exc:
-        SESSION_STORE.discard_turn(session.id, turn_index)
+        SESSION_STORE.discard_turn(
+            session.id, turn_index, allocation_token=alloc_token
+        )
         raise HTTPException(exc.status_code, str(exc)) from exc
     except Exception:
-        SESSION_STORE.discard_turn(session.id, turn_index)
+        SESSION_STORE.discard_turn(
+            session.id, turn_index, allocation_token=alloc_token
+        )
         raise
 
     # Merge the new turn's findings/cohorts/anchors into the session so
@@ -168,12 +180,18 @@ async def follow_up(body: FollowUpRequest) -> AnalyzeResponse:
         turn_index,
         question=clean_question,
         is_refusal=response.is_refusal,
+        allocation_token=alloc_token,
     )
     return response
 
 
 def _finalise_turn(
-    session_id: str, turn_index: int, *, question: str, is_refusal: bool
+    session_id: str,
+    turn_index: int,
+    *,
+    question: str,
+    is_refusal: bool,
+    allocation_token: int,
 ) -> None:
     """Replace the placeholder turn with the real question/refusal flag.
 
@@ -189,6 +207,7 @@ def _finalise_turn(
             turn_index,
             question=question,
             is_refusal=is_refusal,
+            allocation_token=allocation_token,
         )
     except KeyError as exc:
         logger.warning(
