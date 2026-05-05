@@ -9,8 +9,8 @@ between turns and how a follow-up prompt is assembled.
 
 ## 1. What is a "session"
 
-One session = one parent analysis (`/spreadsheet/analyze`) plus zero
-or more follow-ups (`/spreadsheet/follow-up`). Sessions are keyed by
+One session = one parent analysis (`/v1/analyze`) plus zero
+or more follow-ups (`/v1/follow-up`). Sessions are keyed by
 the parent's `id`. Follow-ups carry `parent_id`.
 
 Sessions are in-memory for the eval window — see
@@ -54,7 +54,7 @@ parent run and stored.
 When a follow-up arrives, the planner's system prompt is rebuilt from
 the parent session as:
 
-```
+```text
 You are a data analysis agent. The user has already had this analysis:
 
 Parent question: {original_question}

@@ -11,11 +11,14 @@ entry and a PR that updates this file first.
 
 ## 1. Endpoint
 
-```
-POST /spreadsheet/analyze        # standard analysis (single turn)
-POST /spreadsheet/follow-up      # follow-up; same shape + parent_id
+```text
+POST /v1/analyze                 # standard analysis (single turn)
+POST /v1/follow-up               # follow-up; same shape + parent_id
 GET  /reports/{id}.html          # the rendered report referenced by report_html_url
 ```
+
+These three routes are the **only** paths the organizer's grader calls.
+Internal aliases (e.g. `/spreadsheet/*`) are not part of the contract.
 
 Request bodies are `multipart/form-data` for analyze (file + question),
 `application/json` for follow-up (`{ parent_id, question }`).

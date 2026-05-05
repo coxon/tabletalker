@@ -12,10 +12,13 @@ Requirements on the host:
 - Node 20+ with `pnpm`
 - A reachable `LLM_BASE_URL` + `LLM_API_KEY` (see `.env.example`)
 
-After the script returns:
+While the script is running (it blocks on `wait` after launching both
+servers), the following endpoints are reachable:
 
-- Backend: http://localhost:8000 (`/healthz`, `/v1/analyze`)
+- Backend: http://localhost:8000 (`/health`, `/v1/analyze`)
 - Frontend: http://localhost:3000
+
+Press `Ctrl+C` to stop both servers cleanly.
 
 This script is the contract surface the organizer will run. Keep it
 idempotent and zero-question.

@@ -28,13 +28,13 @@ score; how that file is maintained is in
 
 ## 2. Top-level topology
 
-```
+```text
                          ┌──────────────────────┐
    Browser  ─── HTTP ──▶ │  Next.js frontend    │
                          │  (file picker, chat) │
                          └──────────┬───────────┘
-                                    │ POST /spreadsheet/analyze
-                                    │ POST /spreadsheet/follow-up
+                                    │ POST /v1/analyze
+                                    │ POST /v1/follow-up
                                     │ GET  /reports/{id}.html
                                     ▼
                          ┌──────────────────────┐
@@ -179,7 +179,7 @@ whether to keep it on by default.
 
 ## 5. Data flow on a single analysis request
 
-1. Browser uploads file(s) + question → `POST /spreadsheet/analyze`
+1. Browser uploads file(s) + question → `POST /v1/analyze`
    (multipart).
 2. Backend creates `workspace/{request_id}/`, saves uploads, calls
    profiler.
@@ -192,12 +192,13 @@ whether to keep it on by default.
 6. Report renderer produces `reports/{request_id}.html` and embedded
    chart anchors.
 7. Response shape (see `submission-contract.md`):
-   ```
-   { id, report_html_url, summary, findings, charts,
-     recommendations, is_refusal, confidence }
+   ```json
+   { "id": "...", "report_html_url": "...", "summary": "...",
+     "findings": [], "charts": [], "recommendations": [],
+     "is_refusal": false, "confidence": 0.88 }
    ```
 8. Session store persists profile + findings + cohort names so the next
-   `POST /spreadsheet/follow-up` can resolve pronouns.
+   `POST /v1/follow-up` can resolve pronouns.
 
 ## 6. Non-functional requirements
 

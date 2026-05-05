@@ -42,13 +42,17 @@ TableTalker 是一个面向**结构化数据 (CSV / Excel)** 的智能分析 Age
 
 ## 2. 系统架构
 
+> 对外仅暴露 `/v1/analyze`、`/v1/follow-up`、`/reports/{id}.html` 三条路径,
+> 与 `docs/submission-contract.md` 完全一致;响应 JSON 形状逐字段冻结,
+> 不得漂移。
+
 ### 2.1 拓扑
 
-```
+```text
 浏览器 ──HTTP──▶  Next.js 前端 (上传 / 输入 / 报告 iframe / 追问)
                        │
-                       ▼ POST /spreadsheet/analyze
-                       ▼ POST /spreadsheet/follow-up
+                       ▼ POST /v1/analyze
+                       ▼ POST /v1/follow-up
                        ▼ GET  /reports/{id}.html
                 ┌────────────────────────┐
                 │  FastAPI 后端          │

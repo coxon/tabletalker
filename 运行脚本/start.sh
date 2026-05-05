@@ -20,6 +20,28 @@ if [ ! -f .env ]; then
   fi
 fi
 
+# Fail fast if .env is missing required vars or still carries placeholder
+# credentials. The grader will exercise /v1/analyze, which calls the LLM
+# gateway — booting with `sk-replace-me` would produce a misleading
+# "running" state and fail every request.
+required_vars=(LLM_BASE_URL LLM_API_KEY LLM_MODEL APP_PUBLIC_URL)
+missing=0
+for var in "${required_vars[@]}"; do
+  if ! grep -Eq "^${var}=.+" .env; then
+    echo "ERROR: ${var} is missing or empty in .env" >&2
+    missing=1
+  fi
+done
+if [ "$missing" -ne 0 ]; then
+  echo "        (set the missing variables in .env, then re-run start.sh)" >&2
+  exit 1
+fi
+if grep -Eq '^LLM_API_KEY=sk-replace-me$' .env; then
+  echo "ERROR: LLM_API_KEY in .env is still the placeholder 'sk-replace-me'." >&2
+  echo "       Replace it with a real key issued by the AsiaInfo gateway." >&2
+  exit 1
+fi
+
 echo "==> Backend: installing deps"
 ( cd src/backend && uv sync )
 
