@@ -125,14 +125,19 @@ def test_allocate_follow_up_turn_is_unique_per_call(tmp_path: Path) -> None:
     def factory(sid: str, idx: int) -> str:
         return f"eval_follow_{sid}_q{idx}"
 
+    # Allocate must be paired with set/discard in real usage so the
+    # per-session lock is released; mirror that here so the second
+    # allocation isn't blocked on its own predecessor.
     id1, idx1 = store.allocate_follow_up_turn("p", id_factory=factory)
+    store.set_turn_response("p", idx1, question="q1", is_refusal=False)
     id2, idx2 = store.allocate_follow_up_turn("p", id_factory=factory)
+    store.set_turn_response("p", idx2, question="q2", is_refusal=False)
     assert id1 != id2
     assert idx1 + 1 == idx2
 
     fetched = store.get("p")
     assert fetched is not None
-    # Two placeholder turns reserved.
+    # Two finalised turns recorded.
     assert len(fetched.turns) == 2
 
 
@@ -183,3 +188,66 @@ def test_set_turn_response_raises_keyerror_after_eviction(tmp_path: Path) -> Non
         store.set_turn_response(
             "p", turn_index, question="q", is_refusal=False
         )
+
+
+def test_concurrent_followups_serialised_per_session(tmp_path: Path) -> None:
+    """Per-session lock prevents q-number gaps when two follow-ups
+    interleave: B can only allocate after A has finalised or discarded.
+
+    Reproduces CR's scenario: previously, A reserved q1, B reserved q2,
+    A failed → discard_turn refused to pop a non-tail placeholder and
+    the next allocation skipped to q3. With per-session serialisation,
+    B blocks until A finishes, so the q-counter is gap-free even under
+    concurrent failures.
+    """
+
+    import threading
+
+    store = SessionStore()
+    store.put(_mk_session("p", tmp_path / "p"))
+
+    def factory(sid: str, idx: int) -> str:
+        return f"eval_follow_p_q{idx + 1}"
+
+    # Allocate A (q1).
+    id_a, idx_a = store.allocate_follow_up_turn("p", id_factory=factory)
+    assert id_a.endswith("_q1")
+
+    # B's allocate must block until A releases. Run it on a thread.
+    b_result: dict = {}
+
+    def allocate_b() -> None:
+        b_result["id"], b_result["idx"] = store.allocate_follow_up_turn(
+            "p", id_factory=factory
+        )
+
+    t = threading.Thread(target=allocate_b)
+    t.start()
+    # Give B time to attempt acquire and block.
+    time.sleep(0.05)
+    assert not b_result, "B should be blocked on the per-session lock"
+
+    # A fails — discard. After this B unblocks and gets q1 (the slot A
+    # vacated), keeping the q-sequence gap-free.
+    store.discard_turn("p", idx_a)
+
+    t.join(timeout=1.0)
+    assert not t.is_alive()
+    assert b_result["id"].endswith("_q1"), b_result
+    assert b_result["idx"] == 0
+
+
+def test_set_turn_response_rejects_double_finalisation(tmp_path: Path) -> None:
+    """A regression where the route called set_turn_response twice would
+    silently overwrite a real answer; the placeholder check raises instead."""
+
+    store = SessionStore()
+    store.put(_mk_session("p", tmp_path / "p"))
+    _, turn_index = store.allocate_follow_up_turn(
+        "p", id_factory=lambda sid, idx: f"id-{idx}"
+    )
+    store.set_turn_response("p", turn_index, question="real", is_refusal=False)
+    # The placeholder is gone; a second finalisation must raise rather
+    # than silently overwriting a completed turn.
+    with pytest.raises(RuntimeError, match="already finalised"):
+        store.set_turn_response("p", turn_index, question="oops", is_refusal=False)
