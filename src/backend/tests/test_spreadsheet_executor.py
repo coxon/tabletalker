@@ -70,7 +70,13 @@ def test_full_pipeline_load_filter_group_aggregate_sort_table(workspace: Path) -
     report = execute(plan, workspace)
     assert report.answer["type"] == "table"
     rows = report.answer["rows"]
-    assert rows[0] == {"region": "华东", "total": 300}
+    # Assert the whole payload, not just the first row, so a regression in
+    # ordering or in any non-first row trips the test loudly.
+    # 华北 is filtered out; 华东 sums to 300 (100+200), 华南 to 50; sorted desc.
+    assert rows == [
+        {"region": "华东", "total": 300},
+        {"region": "华南", "total": 50},
+    ]
     assert len(report.verses) == 6
     assert report.verses[0].verb == "load"
     assert report.verses[-1].verb == "render"

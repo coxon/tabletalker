@@ -280,13 +280,20 @@ class ToChartOp(_OpBase):
     @classmethod
     def _non_empty_y(cls, v: str | list[str]) -> str | list[str]:
         # `y` may be a single column name (str) or a list of column names.
-        # An empty list (or empty string) means "render no measures" — there's
-        # nothing to plot, so reject at schema time instead of producing a
-        # blank chart at runtime.
-        if isinstance(v, list) and not v:
+        # Reject empty / whitespace-only entries so `["", "amount"]` or `"  "`
+        # don't slip through to runtime as silently broken charts.
+        if isinstance(v, str):
+            if not v.strip():
+                raise ValueError("to_chart.y must be a non-empty string or list of strings")
+            return v
+        if not v:
             raise ValueError("to_chart.y must be a non-empty string or list of strings")
-        if isinstance(v, str) and not v.strip():
-            raise ValueError("to_chart.y must be a non-empty string or list of strings")
+        for item in v:
+            if not isinstance(item, str) or not item.strip():
+                raise ValueError(
+                    "to_chart.y entries must all be non-empty strings; "
+                    f"found {item!r}"
+                )
         return v
 
 
