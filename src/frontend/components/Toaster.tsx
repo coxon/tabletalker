@@ -21,10 +21,10 @@ export function Toaster() {
         // consistent with the rest of the app.
         unstyled: false,
         classNames: {
-          toast: "!bg-[--color-bg-elev] !text-[--color-fg] !border-[--color-border-strong] !rounded-[--radius-md] !shadow-md",
-          description: "!text-[--color-fg-muted]",
-          actionButton: "!bg-[--color-fg] !text-[--color-bg]",
-          cancelButton: "!bg-[--color-bg-sunken] !text-[--color-fg]",
+          toast: "bg-[--color-bg-elev]! text-[--color-fg]! border-[--color-border-strong]! rounded-[--radius-md]! shadow-md!",
+          description: "text-[--color-fg-muted]!",
+          actionButton: "bg-[--color-fg]! text-[--color-bg]!",
+          cancelButton: "bg-[--color-bg-sunken]! text-[--color-fg]!",
         },
       }}
     />

@@ -17,7 +17,7 @@ import {
   type ChangeEvent,
   type DragEvent,
 } from "react";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { FileSpreadsheet, FilePlus2 } from "lucide-react";
 
 const ACCEPT = ".csv,.xlsx";
@@ -107,26 +107,30 @@ export function Dropzone({ file, onFile, disabled }: DropzoneProps) {
     <>
       {/* Page-wide overlay — only renders while a file drag is active.
           The actual drop handler fires when the user releases over any
-          part of the document. */}
-      {draggingPage ? (
-        <motion.div
-          // Atmospheric blur so the underlying page recedes; the
-          // dashed border draws the eye to "you can drop here".
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.18, ease: [0.32, 0.72, 0, 1] }}
-          className="fixed inset-3 z-40 rounded-[14px] border-2 border-dashed border-[--color-accent] bg-[--color-accent-soft]/60 backdrop-blur-sm"
-          onDrop={handlePageDrop}
-          onDragOver={(event) => event.preventDefault()}
-        >
-          <div className="absolute inset-0 grid place-items-center">
-            <p className="font-display text-2xl italic text-[--color-fg]">
-              松开以载入数据
-            </p>
-          </div>
-        </motion.div>
-      ) : null}
+          part of the document. AnimatePresence keeps the exit fade
+          alive after `draggingPage` flips back to false. */}
+      <AnimatePresence>
+        {draggingPage ? (
+          <motion.div
+            key="page-drop-overlay"
+            // Atmospheric blur so the underlying page recedes; the
+            // dashed border draws the eye to "you can drop here".
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18, ease: [0.32, 0.72, 0, 1] }}
+            className="fixed inset-3 z-40 rounded-[14px] border-2 border-dashed border-[--color-accent] bg-[--color-accent-soft]/60 backdrop-blur-sm"
+            onDrop={handlePageDrop}
+            onDragOver={(event) => event.preventDefault()}
+          >
+            <div className="absolute inset-0 grid place-items-center">
+              <p className="font-display text-2xl italic text-[--color-fg]">
+                松开以载入数据
+              </p>
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
       <label
         htmlFor="dropzone-input"

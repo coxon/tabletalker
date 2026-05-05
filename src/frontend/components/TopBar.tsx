@@ -65,7 +65,7 @@ export function TopBar({ backendOnline, backendLabel, onOpenPalette }: TopBarPro
           {mounted ? (
             <button
               type="button"
-              className="btn !p-2"
+              className="btn p-2!"
               aria-label={theme === "dark" ? "切换为浅色模式" : "切换为深色模式"}
               onClick={toggleTheme}
             >
