@@ -1,13 +1,16 @@
 # 结构化数据智能分析与洞察报告生成系统 · 设计文档
 
-> 版本: v0.1 (PR #3 草案 · 2026-05-05)
+> 版本: v0.1 (路线图 PR #3 草案 · 2026-05-05)
 > 项目: TableTalker
 > 提交对应赛题 4: 结构化数据智能分析与洞察报告生成
+
+> 本文中所有 "PR #N" 均指 [`docs/roadmap.md`](../docs/roadmap.md) 内部
+> 编号(PR #1 — PR #9),不等同于 GitHub Pull Request 编号。
 
 本文件是中文版设计文档，对应组委会要求的 4–8 页设计说明。
 英文版工程细节散落在 `docs/architecture.md`、`docs/submission-contract.md`、
 `docs/refusal-policy.md`、`docs/session-state.md`，本文件做面向评委的整合呈现，
-正式终版在 PR #9 定稿。
+正式终版在路线图 PR #9 定稿。
 
 ---
 
