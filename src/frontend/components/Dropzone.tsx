@@ -66,9 +66,14 @@ export function Dropzone({ file, onFile, disabled }: DropzoneProps) {
       enterCount.current = Math.max(0, enterCount.current - 1);
       if (enterCount.current === 0) setDraggingPage(false);
     };
-    const onDrop = () => {
+    const onDrop = (event: globalThis.DragEvent) => {
+      // Without preventDefault, a drop that misses our handler regions
+      // makes the browser navigate to the file. We always swallow it
+      // and reset the overlay regardless of where the drop landed.
+      event.preventDefault();
       enterCount.current = 0;
       setDraggingPage(false);
+      setDragOverDropzone(false);
     };
     const onOver = (event: globalThis.DragEvent) => {
       // Required to make the page a valid drop target.
