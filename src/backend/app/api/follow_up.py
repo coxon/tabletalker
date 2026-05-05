@@ -167,14 +167,23 @@ async def follow_up(body: FollowUpRequest) -> AnalyzeResponse:
     # subsequent follow-ups see them. The parent's findings stay first —
     # the planner may need them as historical context — and new findings
     # are appended in their own order.
-    new_cohorts = extract_cohorts(response.findings, turn_index=turn_index)
-    session.findings = list(session.findings) + list(response.findings)
-    # `extend` would mutate-in-place but the Session dataclass is shared;
-    # rebinding makes the change atomic from the LRU lookup's perspective.
-    session.cohorts = list(session.cohorts) + list(new_cohorts)
-    session.chart_anchors = list(session.chart_anchors) + [
+    #
+    # Concurrent follow-ups against this parent are serialised by the
+    # per-session lock acquired in `allocate_follow_up_turn`, so the
+    # three rebinds below run as a unit relative to other follow-ups.
+    # Each individual rebind is also atomic under the GIL; a concurrent
+    # `SESSION_STORE.get()` can therefore only observe consistent
+    # snapshots (old triple or new triple), never a half-mutated state.
+    new_findings = list(session.findings) + list(response.findings)
+    new_cohorts_combined = list(session.cohorts) + list(
+        extract_cohorts(response.findings, turn_index=turn_index)
+    )
+    new_anchors = list(session.chart_anchors) + [
         c.html_anchor for c in response.charts
     ]
+    session.findings = new_findings
+    session.cohorts = new_cohorts_combined
+    session.chart_anchors = new_anchors
     _finalise_turn(
         session.id,
         turn_index,
