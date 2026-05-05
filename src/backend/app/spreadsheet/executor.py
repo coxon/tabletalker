@@ -127,11 +127,16 @@ def _validate_dag(plan: Plan) -> None:
         seen.add(op.out)
 
 
-def _input_fields(op: Op) -> list[str]:
-    """Names of register-reference fields for this op kind."""
+def _input_fields(op: Op) -> tuple[str, ...]:
+    """Names of register-reference fields for this op.
 
-    if op.kind == "join":
-        return ["left", "right"]
-    if op.kind in ("load_csv", "load_excel"):
-        return []
-    return ["src"]
+    Each op model declares its register inputs via the `op_inputs` ClassVar
+    on `_OpBase` (default: `("src",)`). Producer ops like `load_csv` set it
+    to `()`; multi-source ops like `join` override to `("left", "right")`.
+
+    Reading from the model — instead of a kind-based switch here — means a
+    new op kind only needs to override `op_inputs` on its model; the
+    executor never has to learn about it.
+    """
+
+    return op.op_inputs

@@ -15,7 +15,7 @@ union — older plans stay valid.
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
@@ -91,17 +91,27 @@ class _OpBase(BaseModel):
 
     out: str = Field(..., description="Name of this op's output in the register.")
 
+    # Names of fields on this op that reference upstream register slots.
+    # The executor walks these via `_input_fields(op)` to validate the DAG
+    # without a hardcoded `kind` switch — new ops just override this tuple.
+    # `()` means a producer op (e.g. `load_csv`) with no inputs.
+    op_inputs: ClassVar[tuple[str, ...]] = ("src",)
+
 
 class LoadCsvOp(_OpBase):
     kind: Literal["load_csv"]
     path: str
     # Encoding/delimiter omitted — autodetect in PR #3.5, expose later if needed.
 
+    op_inputs: ClassVar[tuple[str, ...]] = ()
+
 
 class LoadExcelOp(_OpBase):
     kind: Literal["load_excel"]
     path: str
     sheet: str | int = 0
+
+    op_inputs: ClassVar[tuple[str, ...]] = ()
 
 
 class SelectColumnsOp(_OpBase):
@@ -204,6 +214,8 @@ class JoinOp(_OpBase):
     right: str
     on: list[str]
     how: Literal["inner", "left", "right", "outer"] = "inner"
+
+    op_inputs: ClassVar[tuple[str, ...]] = ("left", "right")
 
     @field_validator("on")
     @classmethod
