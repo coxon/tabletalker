@@ -45,7 +45,16 @@ export function Dropzone({ file, onFile, disabled }: DropzoneProps) {
   const enterCount = useRef(0);
 
   useEffect(() => {
-    if (disabled) return;
+    // When the dropzone goes disabled mid-drag (e.g. analysis kicks
+    // off while the user still has a drag in flight), tear down any
+    // visible drag UI so the screen doesn't get stuck in the overlay
+    // state with no way to dismiss it.
+    if (disabled) {
+      enterCount.current = 0;
+      setDraggingPage(false);
+      setDragOverDropzone(false);
+      return;
+    }
     const onEnter = (event: globalThis.DragEvent) => {
       // Only react to file drags, never to text/element drags.
       if (!event.dataTransfer?.types.includes("Files")) return;
@@ -79,6 +88,7 @@ export function Dropzone({ file, onFile, disabled }: DropzoneProps) {
 
   const handlePageDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
+    if (disabled) return;
     const dropped = event.dataTransfer.files?.[0];
     if (dropped && fileMatchesAccept(dropped.name)) {
       onFile(dropped);
@@ -88,6 +98,7 @@ export function Dropzone({ file, onFile, disabled }: DropzoneProps) {
   const handleZoneDrop = (event: DragEvent<HTMLLabelElement>) => {
     event.preventDefault();
     setDragOverDropzone(false);
+    if (disabled) return;
     const dropped = event.dataTransfer.files?.[0];
     if (dropped && fileMatchesAccept(dropped.name)) {
       onFile(dropped);
@@ -101,6 +112,10 @@ export function Dropzone({ file, onFile, disabled }: DropzoneProps) {
     } else if (picked) {
       onFile(null);
     }
+    // Clear the native value so re-picking the same file emits change
+    // again. Without this the user can't re-select after we've reset
+    // file state (e.g. failed analysis → "try the same file again").
+    event.target.value = "";
   };
 
   return (
