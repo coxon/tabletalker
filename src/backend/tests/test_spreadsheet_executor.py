@@ -117,3 +117,17 @@ def test_op_failure_wraps_with_index(workspace: Path) -> None:
         execute(plan, workspace)
     assert info.value.op_index == 1
     assert info.value.op.kind == "sort"
+
+
+def test_answer_must_be_render_payload(workspace: Path) -> None:
+    """Plans that don't end with `to_table` / `to_chart` get rejected up
+    front — the answer slot must be a renderable dict, not a raw DataFrame."""
+    _write_sales(workspace)
+    plan = Plan(
+        ops=[
+            LoadCsvOp(kind="load_csv", out="raw", path="sales.csv"),
+        ],
+        answer="raw",  # raw is a DataFrame, not a render payload
+    )
+    with pytest.raises(PlanValidationError, match="not a render payload"):
+        execute(plan, workspace)

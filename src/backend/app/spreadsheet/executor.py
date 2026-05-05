@@ -77,8 +77,21 @@ def execute(plan: Plan, workspace: Path) -> ExecutionReport:
     if answer_name not in ctx.register:
         raise PlanValidationError(f"answer references unknown register slot {answer_name!r}")
 
+    answer = ctx.register[answer_name]
+    # The user-facing answer must be a render payload from `to_table` /
+    # `to_chart` (a dict with a `type` discriminator). Anything else means
+    # the LLM forgot the terminal render op — fail loudly here so the API
+    # returns a clean 422 instead of returning a raw DataFrame / GroupBy
+    # that would then fail downstream JSON serialisation.
+    if not isinstance(answer, dict) or answer.get("type") not in ("table", "chart"):
+        kind = type(answer).__name__
+        raise PlanValidationError(
+            f"answer slot {answer_name!r} is not a render payload "
+            f"(got {kind}); plan must end with `to_table` or `to_chart`"
+        )
+
     return ExecutionReport(
-        answer=ctx.register[answer_name],
+        answer=answer,
         op_results=op_results,
         verses=verses,
     )

@@ -245,6 +245,19 @@ class ToChartOp(_OpBase):
     y: str | list[str]
     title: str | None = None
 
+    @field_validator("y")
+    @classmethod
+    def _non_empty_y(cls, v: str | list[str]) -> str | list[str]:
+        # `y` may be a single column name (str) or a list of column names.
+        # An empty list (or empty string) means "render no measures" — there's
+        # nothing to plot, so reject at schema time instead of producing a
+        # blank chart at runtime.
+        if isinstance(v, list) and not v:
+            raise ValueError("to_chart.y must be a non-empty string or list of strings")
+        if isinstance(v, str) and not v.strip():
+            raise ValueError("to_chart.y must be a non-empty string or list of strings")
+        return v
+
 
 _OpUnion = (
     LoadCsvOp

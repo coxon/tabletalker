@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
+from pydantic import ValidationError
 
 from app.spreadsheet.context import SpreadsheetContext
 from app.spreadsheet.ops.join import handle_join
@@ -86,3 +88,16 @@ def test_to_chart_payload(ctx: SpreadsheetContext) -> None:
     assert payload["chart"] == "bar"
     assert payload["x"] == "region"
     assert payload["y"] == ["amount"]
+
+
+def test_to_chart_rejects_empty_y_at_schema() -> None:
+    """Empty `y` is caught at schema validation, not just runtime."""
+    with pytest.raises(ValidationError, match="non-empty"):
+        ToChartOp(
+            kind="to_chart",
+            out="chart",
+            src="sales",
+            chart="bar",
+            x="region",
+            y=[],
+        )

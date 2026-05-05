@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
 
 from app.spreadsheet.context import SpreadsheetContext
@@ -50,3 +52,26 @@ def test_filter_rows_with_compound_and(ctx: SpreadsheetContext) -> None:
     df = ctx.get("big_east")
     assert len(df) == 1
     assert df.iloc[0]["amount"] == 200
+
+
+def test_filter_rows_handles_nullable_boolean_mask(workspace: Path) -> None:
+    """A predicate against a column with NaN yields a nullable boolean mask;
+    NA cells must drop (treated as False) rather than blow up indexing."""
+
+    df = pd.DataFrame(
+        {
+            "region": ["华东", "华东", "华南"],
+            "amount": [100, pd.NA, 50],  # the NA row produces <NA> in the mask
+        }
+    )
+    c = SpreadsheetContext(workspace=workspace)
+    c.put("sales", df)
+    where = BinOpExpr(
+        op=">", args=[ColRefExpr(col="amount"), LiteralExpr(lit=75)]
+    )
+    handle_filter_rows(
+        FilterRowsOp(kind="filter_rows", out="big", src="sales", where=where), c
+    )
+    out = c.get("big")
+    assert len(out) == 1  # only the 100 row; <NA> dropped, 50 filtered out
+    assert out.iloc[0]["amount"] == 100

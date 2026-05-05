@@ -130,9 +130,11 @@ async def analyze(
         except OpExecutionError as exc:
             logger.warning("op execution failed at #%d (%s): %s",
                            exc.op_index, exc.op.kind, exc.cause)
+            # `op_index` is 0-based internally; verses are 1-based for users,
+            # so add 1 to keep the step number aligned with what the trace shows.
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_CONTENT,
-                f"op execution failed at step {exc.op_index} ({exc.op.kind})",
+                f"op execution failed at step {exc.op_index + 1} ({exc.op.kind})",
             ) from exc
 
         return AnalyzeResponse(plan=plan, result=report.answer, verses=report.verses)

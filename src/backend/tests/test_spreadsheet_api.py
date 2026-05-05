@@ -130,8 +130,10 @@ def test_analyze_propagates_op_error(
     # The response message is sanitised — it identifies the failing step
     # and op kind without leaking the underlying exception text. The detailed
     # cause (`'NOT_A_COL'`) is logged server-side, not returned to the client.
+    # Step number is 1-based and aligns with `verses[n].n` shown in the trace —
+    # the failing `sort` op is the 2nd op in the plan, so step 2.
     detail = response.json()["detail"]
-    assert "step 1" in detail
+    assert "step 2" in detail
     assert "sort" in detail
 
 
