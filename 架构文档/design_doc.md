@@ -3,7 +3,7 @@
 > 版本: v0.1 (路线图 PR #3 草案 · 2026-05-05)
 > 项目: TableTalker
 > 提交对应赛题 4: 结构化数据智能分析与洞察报告生成
-
+>
 > 本文中所有 "PR #N" 均指 [`docs/roadmap.md`](../docs/roadmap.md) 内部
 > 编号(PR #1 — PR #9),不等同于 GitHub Pull Request 编号。
 
