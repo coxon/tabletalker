@@ -67,10 +67,13 @@ export function Dropzone({ file, onFile, disabled }: DropzoneProps) {
       if (enterCount.current === 0) setDraggingPage(false);
     };
     const onDrop = (event: globalThis.DragEvent) => {
-      // Without preventDefault, a drop that misses our handler regions
-      // makes the browser navigate to the file. We always swallow it
-      // and reset the overlay regardless of where the drop landed.
-      event.preventDefault();
+      // Only swallow file drops — without preventDefault a missed file
+      // drop would make the browser navigate to the file. We must NOT
+      // preventDefault on text/element drops because that would block
+      // legitimate drops into editable fields elsewhere on the page.
+      if (event.dataTransfer?.types.includes("Files")) {
+        event.preventDefault();
+      }
       enterCount.current = 0;
       setDraggingPage(false);
       setDragOverDropzone(false);
