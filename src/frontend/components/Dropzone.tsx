@@ -152,10 +152,10 @@ export function Dropzone({ file, onFile, disabled }: DropzoneProps) {
         // The dropzone rectangle is its own drop target so dropping
         // *into* it works even when the page-overlay isn't visible
         // (e.g. user toggled accept then re-dropped).
-        onDragEnter={() => setDragOverDropzone(true)}
-        onDragLeave={() => setDragOverDropzone(false)}
-        onDragOver={(event) => event.preventDefault()}
-        onDrop={handleZoneDrop}
+        onDragEnter={disabled ? undefined : () => setDragOverDropzone(true)}
+        onDragLeave={disabled ? undefined : () => setDragOverDropzone(false)}
+        onDragOver={disabled ? undefined : (event) => event.preventDefault()}
+        onDrop={disabled ? undefined : handleZoneDrop}
         className={[
           "group relative flex h-full min-h-[220px] flex-col items-center justify-center gap-2 rounded-[--radius-md] border border-dashed px-6 py-8 text-center transition",
           dragOverDropzone
