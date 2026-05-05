@@ -72,8 +72,13 @@ def render_label(op: Op) -> str:
         return ", ".join(f"{a.fn}({a.column})" for a in aggs)
     if kind == "sort":
         by = getattr(op, "by", [])
-        desc = getattr(op, "desc", None) or [False] * len(by)
-        return ", ".join(f"{c}{' desc' if d else ''}" for c, d in zip(by, desc, strict=False))
+        # `desc` is schema-validated to be either None or len(by); fall back
+        # to all-ascending here so a hand-crafted op (e.g. in tests) without
+        # `desc` still renders every column instead of silently truncating.
+        desc = getattr(op, "desc", None)
+        if desc is None or len(desc) != len(by):
+            desc = [False] * len(by)
+        return ", ".join(f"{c}{' desc' if d else ''}" for c, d in zip(by, desc, strict=True))
     if kind in ("head", "tail"):
         n = getattr(op, "n", 10)
         return f"{kind} {n}"

@@ -92,7 +92,9 @@ Return ONLY the JSON Plan. No prose, no markdown fences. Start with `{`.
 
 def _user_message(req: PlanRequest) -> str:
     preview = req.table_preview.head(5).to_csv(index=False)
-    columns = ", ".join(req.table_preview.columns)
+    # `columns` may be non-string (int, tuple from MultiIndex flattening, etc.)
+    # — coerce defensively so the prompt never crashes on weird CSV headers.
+    columns = ", ".join(str(c) for c in req.table_preview.columns)
     return (
         f"File available in the workspace: {req.workspace_filename}\n"
         f"Columns: {columns}\n"

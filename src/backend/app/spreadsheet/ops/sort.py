@@ -15,7 +15,9 @@ def handle_sort(op: SortOp, ctx: SpreadsheetContext) -> OpResult:
     missing = [c for c in op.by if c not in src.columns]
     if missing:
         raise KeyError(f"sort: missing columns {missing}")
-    desc = op.desc or [False] * len(op.by)
+    # `desc is None` → all ascending. `desc is []` is rejected at schema
+    # validation (see SortOp._desc_matches_by), so we don't fall back here.
+    desc = [False] * len(op.by) if op.desc is None else op.desc
     if len(desc) != len(op.by):
         raise ValueError(f"sort: `desc` length {len(desc)} != `by` length {len(op.by)}")
     ascending = [not d for d in desc]

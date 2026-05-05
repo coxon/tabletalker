@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 # ---------------------------------------------------------------------------
 # Tiny expression DSL for `add_column`
@@ -57,6 +57,13 @@ class BinOpExpr(BaseModel):
     def _check_op(cls, v: str) -> str:
         if v not in ALLOWED_BINOPS:
             raise ValueError(f"unknown binop {v!r}; allowed: {sorted(ALLOWED_BINOPS)}")
+        return v
+
+    @field_validator("args")
+    @classmethod
+    def _check_arity(cls, v: list[Expr]) -> list[Expr]:
+        if len(v) != 2:
+            raise ValueError(f"binop expects exactly 2 args, got {len(v)}")
         return v
 
 
@@ -121,6 +128,13 @@ class GroupByOp(_OpBase):
     src: str
     by: list[str]
 
+    @field_validator("by")
+    @classmethod
+    def _non_empty_by(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("group_by.by must contain at least one column")
+        return v
+
 
 class AggSpec(BaseModel):
     """One aggregation: which column, which function, what to call the result."""
@@ -137,12 +151,39 @@ class AggregateOp(_OpBase):
     src: str  # must reference a group_by output
     aggs: list[AggSpec]
 
+    @field_validator("aggs")
+    @classmethod
+    def _non_empty_aggs(cls, v: list[AggSpec]) -> list[AggSpec]:
+        if not v:
+            raise ValueError("aggregate.aggs must contain at least one spec")
+        return v
+
 
 class SortOp(_OpBase):
     kind: Literal["sort"]
     src: str
     by: list[str]
     desc: list[bool] | None = None
+
+    @field_validator("by")
+    @classmethod
+    def _non_empty_by(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("sort.by must contain at least one column")
+        return v
+
+    @field_validator("desc")
+    @classmethod
+    def _desc_matches_by(cls, v: list[bool] | None, info: ValidationInfo) -> list[bool] | None:
+        if v is None:
+            return None
+        by: list[str] = info.data.get("by", []) or []
+        if len(v) != len(by):
+            raise ValueError(
+                f"sort.desc length ({len(v)}) must match sort.by length ({len(by)}); "
+                "omit `desc` for all-ascending"
+            )
+        return v
 
 
 class HeadOp(_OpBase):
@@ -163,6 +204,13 @@ class JoinOp(_OpBase):
     right: str
     on: list[str]
     how: Literal["inner", "left", "right", "outer"] = "inner"
+
+    @field_validator("on")
+    @classmethod
+    def _non_empty_on(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("join.on must contain at least one key column")
+        return v
 
 
 class PivotOp(_OpBase):

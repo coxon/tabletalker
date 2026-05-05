@@ -22,6 +22,7 @@ only place the executor's load ops can read from — see
 
 from __future__ import annotations
 
+import logging
 import shutil
 import tempfile
 from pathlib import Path
@@ -40,6 +41,8 @@ from app.spreadsheet.llm import HttpChatClient, LLMConfig, LLMConfigError, LLMEr
 from app.spreadsheet.planner import PlannerError, PlanRequest, make_plan
 from app.spreadsheet.schema import Plan
 from app.spreadsheet.verse import TableVerse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/spreadsheet", tags=["spreadsheet"])
 
@@ -75,13 +78,23 @@ async def analyze(
     try:
         target = workspace / filename
         await _save_upload(file, target)
-        preview = _load_preview(target)
+        try:
+            preview = _load_preview(target)
+        except HTTPException:
+            raise
+        except (ValueError, pd.errors.ParserError, pd.errors.EmptyDataError) as exc:
+            logger.warning("preview parse failed for %s: %s", filename, exc)
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "uploaded file could not be parsed; check format and encoding",
+            ) from exc
         try:
             config = LLMConfig.from_env()
         except LLMConfigError as exc:
+            logger.error("LLM not configured: %s", exc)
             raise HTTPException(
                 status.HTTP_503_SERVICE_UNAVAILABLE,
-                f"LLM not configured: {exc}",
+                "LLM service is not configured",
             ) from exc
 
         client = HttpChatClient(config)
@@ -94,16 +107,33 @@ async def analyze(
         try:
             plan = await make_plan(client, request)
         except PlannerError as exc:
-            raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+            logger.warning("planner rejected request: %s", exc)
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                "planner failed to produce a valid plan",
+            ) from exc
         except LLMError as exc:
-            raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"LLM call failed: {exc}") from exc
+            logger.warning("LLM call failed: %s", exc)
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                "LLM gateway error",
+            ) from exc
 
         try:
             report = execute(plan, workspace)
         except PlanValidationError as exc:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+            logger.info("plan validation failed: %s", exc)
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "generated plan failed validation",
+            ) from exc
         except OpExecutionError as exc:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+            logger.warning("op execution failed at #%d (%s): %s",
+                           exc.op_index, exc.op.kind, exc.cause)
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                f"op execution failed at step {exc.op_index} ({exc.op.kind})",
+            ) from exc
 
         return AnalyzeResponse(plan=plan, result=report.answer, verses=report.verses)
     finally:

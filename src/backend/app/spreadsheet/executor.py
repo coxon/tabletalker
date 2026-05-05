@@ -48,6 +48,11 @@ class ExecutionReport:
 def execute(plan: Plan, workspace: Path) -> ExecutionReport:
     """Run a plan. Raises `PlanValidationError` or `OpExecutionError`."""
 
+    if not plan.ops:
+        # Schema-level validator should have caught this; treat any leak as
+        # a hard plan error (not an IndexError) so the API maps to 422.
+        raise PlanValidationError("plan must contain at least one op")
+
     _validate_dag(plan)
     ctx = SpreadsheetContext(workspace=workspace)
     op_results: list[OpResult] = []

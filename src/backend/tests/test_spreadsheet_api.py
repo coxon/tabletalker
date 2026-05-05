@@ -127,7 +127,12 @@ def test_analyze_propagates_op_error(
         data={"question": "anything"},
     )
     assert response.status_code == 422
-    assert "NOT_A_COL" in response.json()["detail"]
+    # The response message is sanitised — it identifies the failing step
+    # and op kind without leaking the underlying exception text. The detailed
+    # cause (`'NOT_A_COL'`) is logged server-side, not returned to the client.
+    detail = response.json()["detail"]
+    assert "step 1" in detail
+    assert "sort" in detail
 
 
 def test_analyze_413_on_oversized_upload(

@@ -10,7 +10,11 @@ We split into two ops (vs a single `group_agg`) because:
 from __future__ import annotations
 
 import pandas as pd
-from pandas.core.groupby.generic import DataFrameGroupBy
+
+# `pandas.api.typing` is the public re-export of internal type aliases
+# (since pandas 2.1). Avoid reaching into `pandas.core.*` — that's the
+# private namespace and can move between minor versions.
+from pandas.api.typing import DataFrameGroupBy
 
 from app.spreadsheet.context import SpreadsheetContext
 from app.spreadsheet.schema import AggregateOp, GroupByOp, OpResult

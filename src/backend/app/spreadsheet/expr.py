@@ -94,7 +94,10 @@ def _apply_fn(fn: str, args: list[Any]) -> Any:
         return _series_or_scalar(args[0], lambda x: x.abs(), abs)
     if fn == "round":
         _check_arity(fn, args, (1, 2))
-        ndigits = int(args[1]) if len(args) == 2 else 0
+        try:
+            ndigits = int(args[1]) if len(args) == 2 else 0
+        except (TypeError, ValueError) as exc:
+            raise ExprError(f"fn 'round' digits must be an integer, got {args[1]!r}") from exc
         return _series_or_scalar(args[0], lambda x: x.round(ndigits), lambda x: round(x, ndigits))
     if fn == "min":
         return _reduce_args(args, "min")
@@ -113,7 +116,15 @@ def _apply_fn(fn: str, args: list[Any]) -> Any:
         _check_arity(fn, args, 3)
         cond, then_, else_ = args
         if isinstance(cond, pd.Series):
-            return cond.where(cond.astype(bool), other=else_).where(~cond.astype(bool), other=then_)
+            # Coerce nullable booleans (BooleanDtype with <NA>) to plain bool;
+            # NA cells fall to the `else_` branch so the result is never <NA>.
+            bool_cond = cond.fillna(False).astype(bool)
+            # Series.where(cond, other) keeps `self` where cond is True.
+            # We want then_ where True, else_ where False.
+            then_series = then_ if isinstance(then_, pd.Series) else pd.Series(
+                then_, index=bool_cond.index
+            )
+            return then_series.where(bool_cond, other=else_)
         return then_ if cond else else_
     raise ExprError(f"unhandled fn {fn!r}")  # schema should have caught this
 

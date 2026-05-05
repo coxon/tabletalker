@@ -28,6 +28,14 @@ def handle_filter_rows(op: FilterRowsOp, ctx: SpreadsheetContext) -> OpResult:
     mask = evaluate(op.where, src)
     if not isinstance(mask, pd.Series):
         raise TypeError(f"filter_rows: `where` must produce a Series, got {type(mask).__name__}")
-    df = src[mask.astype(bool)].reset_index(drop=True)
+    if len(mask) != len(src):
+        raise ValueError(
+            f"filter_rows: `where` produced length {len(mask)}, expected {len(src)}"
+        )
+    # Coerce nullable boolean / float masks to a strict bool (NA → False).
+    # Without this, a column with NaN compared to a literal returns Boolean
+    # dtype with <NA> entries that pandas refuses to use for indexing.
+    bool_mask = mask.fillna(False).astype(bool)
+    df = src[bool_mask].reset_index(drop=True)
     ctx.put(op.out, df)
     return OpResult(out=op.out, kind="filter_rows", rows=len(df), cols=len(df.columns))

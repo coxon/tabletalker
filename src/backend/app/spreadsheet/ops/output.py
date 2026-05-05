@@ -22,7 +22,10 @@ def handle_to_table(op: ToTableOp, ctx: SpreadsheetContext) -> OpResult:
     payload: dict[str, Any] = {
         "type": "table",
         "title": op.title,
-        "columns": list(src.columns),
+        # Stringify column labels so they line up with the str-keyed row dicts
+        # produced by `_df_to_records`. Without this a tuple/int label would
+        # appear in `columns` but never in `rows`, breaking client renderers.
+        "columns": [str(c) for c in src.columns],
         "rows": _df_to_records(src),
     }
     ctx.put(op.out, payload)
@@ -34,6 +37,8 @@ def handle_to_chart(op: ToChartOp, ctx: SpreadsheetContext) -> OpResult:
     if not isinstance(src, pd.DataFrame):
         raise TypeError(f"to_chart expects DataFrame at {op.src!r}, got {type(src).__name__}")
     y_cols = [op.y] if isinstance(op.y, str) else list(op.y)
+    if not y_cols:
+        raise ValueError("to_chart: `y` must reference at least one column")
     needed = [op.x, *y_cols]
     missing = [c for c in needed if c not in src.columns]
     if missing:
