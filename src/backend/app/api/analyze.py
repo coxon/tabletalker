@@ -4,10 +4,17 @@ This is the route the organizer's grader calls. The response shape is
 frozen — see `docs/submission-contract.md`. The heavy lifting lives in
 `app.analyze.handler`; this module only:
 
-  - Saves the upload into a per-request workspace.
+  - Saves the upload into a per-session workspace.
   - Builds an `AnalyzeRequest` for the handler.
   - Maps `AnalyzeFailure` to HTTP errors.
-  - Cleans up the workspace on the way out.
+  - Registers the resulting state into the session store so follow-ups
+    can pick the workspace up by `parent_id`.
+
+Workspace lifetime: the parent's temp dir survives until the session
+expires (TTL or LRU eviction). That trade — keeping ≤20 MiB per session
+in the OS temp dir for ~24 h — is what lets `/v1/follow-up` re-read the
+file without round-tripping through the network. Cleanup happens in
+`app.session.store` when an entry is evicted.
 
 The internal `/spreadsheet/analyze` route (PR #3.5) is unaffected — it
 still exists for dev/debug, but the grader never sees it.
@@ -29,6 +36,11 @@ from app.analyze.handler import (
 )
 from app.analyze.schema import AnalyzeResponse
 from app.limits import UPLOAD_MAX_BYTES
+from app.session import (
+    SESSION_STORE,
+    extract_cohorts,
+    session_from_response,
+)
 from app.spreadsheet.llm import HttpChatClient, LLMConfig, LLMConfigError
 
 logger = logging.getLogger(__name__)
@@ -53,6 +65,7 @@ async def analyze(
 
     filename = _safe_filename(file.filename or "upload.csv")
     workspace = Path(tempfile.mkdtemp(prefix="tabletalker-analyze-"))
+    keep_workspace = False
     try:
         target = workspace / filename
         await _save_upload(file, target)
@@ -67,21 +80,42 @@ async def analyze(
             ) from exc
 
         chat_client = HttpChatClient(config)
+        effective_dataset = clean_dataset or Path(filename).stem
         request = AnalyzeRequest(
             workspace=workspace,
             filename=filename,
             # `dataset` defaults to the file's stem so casual uploads
             # ("sales.csv") still produce a sensible Evidence.dataset.
             # Named datasets pass `dataset=...` in the form.
-            dataset=clean_dataset or Path(filename).stem,
+            dataset=effective_dataset,
             question=clean_question,
         )
         try:
-            return await handle_analyze(request, chat_client=chat_client)
+            response = await handle_analyze(request, chat_client=chat_client)
         except AnalyzeFailure as exc:
             raise HTTPException(exc.status_code, str(exc)) from exc
+
+        # Register the session so /v1/follow-up can pick it up. We do
+        # this *before* the early-return so even refused parents are
+        # addressable — the contract requires the same shape, and the
+        # follow-up handler enforces refusal carry-through.
+        cohorts = extract_cohorts(response.findings, turn_index=0)
+        session = session_from_response(
+            response,
+            workspace_dir=workspace,
+            filename=filename,
+            dataset=effective_dataset,
+            original_question=clean_question,
+            cohorts=cohorts,
+        )
+        SESSION_STORE.put(session)
+        # Workspace ownership has transferred to the session store — do
+        # not rmtree it on the way out.
+        keep_workspace = True
+        return response
     finally:
-        shutil.rmtree(workspace, ignore_errors=True)
+        if not keep_workspace:
+            shutil.rmtree(workspace, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------

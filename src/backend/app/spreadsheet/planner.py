@@ -36,6 +36,11 @@ class PlanRequest:
     question: str
     table_preview: pd.DataFrame  # used to show the LLM the available columns
     workspace_filename: str  # the file the LLM should reference in `load_csv`/`load_excel`
+    # Optional prelude — the follow-up route prepends a session prompt
+    # (parent question, named cohorts, prior findings) so the LLM can
+    # resolve pronouns without us having to graft session awareness into
+    # the planner core. `None` keeps single-turn analyze unchanged.
+    prelude: str | None = None
 
 
 class PlannerError(Exception):
@@ -107,10 +112,15 @@ def _user_message(req: PlanRequest) -> str:
 async def make_plan(client: ChatClient, req: PlanRequest) -> Plan:
     """Ask the LLM for a plan, retrying on schema-validation failure."""
 
+    # When the follow-up route hands us a session prelude, splice it in
+    # as a second system message — keeps the canonical planner system
+    # prompt unchanged so the schema/op rules don't get diluted.
     messages: list[dict[str, str]] = [
         {"role": "system", "content": _PLANNER_PROMPT},
-        {"role": "user", "content": _user_message(req)},
     ]
+    if req.prelude:
+        messages.append({"role": "system", "content": req.prelude})
+    messages.append({"role": "user", "content": _user_message(req)})
 
     last_error: str | None = None
     for attempt in range(MAX_PLAN_RETRIES + 1):
