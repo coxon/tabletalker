@@ -199,13 +199,16 @@ class SortOp(_OpBase):
 class HeadOp(_OpBase):
     kind: Literal["head"]
     src: str
-    n: int = 10
+    # `ge=0` because pandas treats negatives as "all but the last N rows" — a
+    # surprising semantic for the LLM to accidentally trigger. Zero is fine
+    # (returns an empty frame) and stays predictable.
+    n: int = Field(default=10, ge=0)
 
 
 class TailOp(_OpBase):
     kind: Literal["tail"]
     src: str
-    n: int = 10
+    n: int = Field(default=10, ge=0)
 
 
 class JoinOp(_OpBase):

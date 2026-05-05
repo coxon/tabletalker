@@ -19,10 +19,12 @@ from app.spreadsheet.schema import (
     ColRefExpr,
     FilterRowsOp,
     GroupByOp,
+    HeadOp,
     LiteralExpr,
     LoadCsvOp,
     Plan,
     SortOp,
+    TailOp,
     ToTableOp,
 )
 
@@ -131,3 +133,34 @@ def test_answer_must_be_render_payload(workspace: Path) -> None:
     )
     with pytest.raises(PlanValidationError, match="not a render payload"):
         execute(plan, workspace)
+
+
+def test_aggregate_requires_group_by_producer(workspace: Path) -> None:
+    """The DAG-validation pass rejects `aggregate` whose src is a frame."""
+    _write_sales(workspace)
+    plan = Plan(
+        ops=[
+            LoadCsvOp(kind="load_csv", out="raw", path="sales.csv"),
+            # `raw` is a DataFrame, not a GroupBy — should be rejected
+            # at plan validation, before we even start executing.
+            AggregateOp(
+                kind="aggregate",
+                out="totals",
+                src="raw",
+                aggs=[AggSpec(column="amount", fn="sum", **{"as": "total"})],
+            ),
+        ]
+    )
+    with pytest.raises(PlanValidationError, match="must come from a `group_by`"):
+        execute(plan, workspace)
+
+
+def test_head_and_tail_reject_negative_n() -> None:
+    """Schema-level: pandas treats negatives as "all but last/first N" — the
+    LLM shouldn't accidentally trigger that surprise. Reject at validation."""
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError):
+        HeadOp(kind="head", out="x", src="raw", n=-1)
+    with pytest.raises(pydantic.ValidationError):
+        TailOp(kind="tail", out="x", src="raw", n=-1)

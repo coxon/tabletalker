@@ -107,24 +107,42 @@ def _validate_dag(plan: Plan) -> None:
     We don't allow forward references — the executor runs ops in list
     order, and tolerating forward refs would require topological sort
     that the LLM rarely needs anyway.
+
+    Beyond shape, we also enforce a couple of semantic constraints so
+    bad plans fail at validation rather than partway through execution:
+      - `aggregate.src` must point to a `group_by` output (otherwise the
+        op handler would explode on a DataFrame instead of a GroupBy).
+    The `plan.answer` slot is type-checked separately at execute() time,
+    after the ops run, because only then do we know the runtime payload.
     """
 
-    seen: set[str] = set()
+    # name → (op_index, kind) so we can give precise errors and check
+    # producer kinds for semantic constraints.
+    produced: dict[str, tuple[int, str]] = {}
     for index, op in enumerate(plan.ops):
         for input_field in _input_fields(op):
             ref = getattr(op, input_field)
-            if ref not in seen:
+            if ref not in produced:
                 raise PlanValidationError(
                     f"op #{index} ({op.kind}) references undefined input "
                     f"{input_field}={ref!r}; either it's a typo, or the producing "
                     "op comes later in the list (forward refs not allowed)"
                 )
-        if op.out in seen:
+            # Semantic check: aggregate consumes a GroupBy, not a frame.
+            if op.kind == "aggregate" and input_field == "src":
+                _, producer_kind = produced[ref]
+                if producer_kind != "group_by":
+                    raise PlanValidationError(
+                        f"op #{index} (aggregate) src={ref!r} must come from a "
+                        f"`group_by` op, but the producer is {producer_kind!r}; "
+                        "add a group_by before aggregate"
+                    )
+        if op.out in produced:
             raise PlanValidationError(
                 f"op #{index} ({op.kind}) reuses output name {op.out!r}; "
                 "every op must produce a unique register slot"
             )
-        seen.add(op.out)
+        produced[op.out] = (index, op.kind)
 
 
 def _input_fields(op: Op) -> tuple[str, ...]:
