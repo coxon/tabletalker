@@ -171,3 +171,26 @@ def test_head_and_tail_reject_negative_n() -> None:
         HeadOp(kind="head", out="x", src="raw", n=-1)
     with pytest.raises(pydantic.ValidationError):
         TailOp(kind="tail", out="x", src="raw", n=-1)
+
+
+def test_unknown_fields_in_plan_rejected() -> None:
+    """A typo'd or hallucinated key from the LLM should fail validation,
+    not silently get dropped."""
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError, match="extra"):
+        # `colum` is a typo of `col` — Plan must reject it instead of
+        # accepting a silently-broken expression.
+        Plan.model_validate(
+            {
+                "ops": [
+                    {"kind": "load_csv", "out": "raw", "path": "sales.csv"},
+                    {
+                        "kind": "filter_rows",
+                        "out": "f",
+                        "src": "raw",
+                        "where": {"colum": "amount"},  # typo
+                    },
+                ]
+            }
+        )

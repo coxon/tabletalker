@@ -40,15 +40,27 @@ ALLOWED_BINOPS = frozenset({"+", "-", "*", "/", "==", "!=", "<", "<=", ">", ">="
 ALLOWED_FNS = frozenset({"abs", "round", "min", "max", "lower", "upper", "len", "if"})
 
 
-class LiteralExpr(BaseModel):
+class _StrictModel(BaseModel):
+    """Schema base — reject unknown fields at the planner boundary.
+
+    The planner is an LLM; unfamiliar keys it might invent (typos like
+    `colum` instead of `column`, or hallucinated extras like `fmt`) must
+    fail loudly at validation, not silently slip through and confuse the
+    executor. `extra="forbid"` is the cheapest way to enforce that.
+    """
+
+    model_config = {"extra": "forbid"}
+
+
+class LiteralExpr(_StrictModel):
     lit: float | int | str | bool | None
 
 
-class ColRefExpr(BaseModel):
+class ColRefExpr(_StrictModel):
     col: str
 
 
-class BinOpExpr(BaseModel):
+class BinOpExpr(_StrictModel):
     op: str
     args: list[Expr]
 
@@ -67,7 +79,7 @@ class BinOpExpr(BaseModel):
         return v
 
 
-class CallExpr(BaseModel):
+class CallExpr(_StrictModel):
     fn: str
     args: list[Expr]
 
@@ -86,7 +98,7 @@ Expr = LiteralExpr | ColRefExpr | BinOpExpr | CallExpr
 # Op discriminated union
 # ---------------------------------------------------------------------------
 
-class _OpBase(BaseModel):
+class _OpBase(_StrictModel):
     """Common fields for every op."""
 
     out: str = Field(..., description="Name of this op's output in the register.")
@@ -153,14 +165,16 @@ class GroupByOp(_OpBase):
         return v
 
 
-class AggSpec(BaseModel):
+class AggSpec(_StrictModel):
     """One aggregation: which column, which function, what to call the result."""
 
     column: str
     fn: Literal["sum", "mean", "count", "min", "max", "median", "nunique"]
     as_: str = Field(..., alias="as")
 
-    model_config = {"populate_by_name": True}
+    # Need both: forbid extras (from _StrictModel) AND let callers use the
+    # python attr name `as_` instead of the JSON alias `as` (a python keyword).
+    model_config = {"extra": "forbid", "populate_by_name": True}
 
 
 class AggregateOp(_OpBase):
@@ -317,7 +331,7 @@ _OpUnion = (
 Op = Annotated[_OpUnion, Field(discriminator="kind")]
 
 
-class Plan(BaseModel):
+class Plan(_StrictModel):
     """A DAG of typed ops. The last op's output is the user-facing answer."""
 
     ops: list[Op]
@@ -339,6 +353,8 @@ class Plan(BaseModel):
 # Op execution result (per-op metadata for the trace)
 # ---------------------------------------------------------------------------
 
+# Note: OpResult is internal trace metadata, not a planner input — it doesn't
+# need `extra="forbid"` since handlers construct it directly.
 class OpResult(BaseModel):
     """Metadata captured per op during execution. Not the data itself."""
 
