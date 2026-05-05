@@ -39,6 +39,23 @@ from pydantic import BaseModel, Field, ValidationInfo, field_validator
 ALLOWED_BINOPS = frozenset({"+", "-", "*", "/", "==", "!=", "<", "<=", ">", ">=", "and", "or"})
 ALLOWED_FNS = frozenset({"abs", "round", "min", "max", "lower", "upper", "len", "if"})
 
+# Per-function arity. A tuple `(min, max)` covers variadic / optional cases:
+#   - `round(x)` and `round(x, 2)` both valid → (1, 2)
+#   - `min` / `max` accept ≥1 args → (1, None) where `None` means unbounded
+# Single-arity fns use `(n, n)` for clarity.
+# Mirrors the runtime `_check_arity` calls in `app.spreadsheet.expr` so a
+# bad call count fails at plan validation, not partway through execution.
+_FN_ARITY: dict[str, tuple[int, int | None]] = {
+    "abs": (1, 1),
+    "round": (1, 2),
+    "min": (1, None),
+    "max": (1, None),
+    "lower": (1, 1),
+    "upper": (1, 1),
+    "len": (1, 1),
+    "if": (3, 3),
+}
+
 
 class _StrictModel(BaseModel):
     """Schema base — reject unknown fields at the planner boundary.
@@ -88,6 +105,26 @@ class CallExpr(_StrictModel):
     def _check_fn(cls, v: str) -> str:
         if v not in ALLOWED_FNS:
             raise ValueError(f"unknown fn {v!r}; allowed: {sorted(ALLOWED_FNS)}")
+        return v
+
+    @field_validator("args")
+    @classmethod
+    def _check_arity(cls, v: list[Expr], info: ValidationInfo) -> list[Expr]:
+        # `fn` was already validated above; if it's missing here that means
+        # validation already failed elsewhere, so skip arity to avoid masking
+        # the more useful "unknown fn" error.
+        fn = info.data.get("fn")
+        if not isinstance(fn, str) or fn not in _FN_ARITY:
+            return v
+        lo, hi = _FN_ARITY[fn]
+        n = len(v)
+        if n < lo or (hi is not None and n > hi):
+            expected = f"{lo}" if lo == hi else (
+                f"{lo}–{hi}" if hi is not None else f"≥{lo}"
+            )
+            raise ValueError(
+                f"fn {fn!r} expects {expected} arg(s), got {n}"
+            )
         return v
 
 

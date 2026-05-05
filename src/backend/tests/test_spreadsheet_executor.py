@@ -194,3 +194,49 @@ def test_unknown_fields_in_plan_rejected() -> None:
                 ]
             }
         )
+
+
+def test_call_expr_arity_enforced_at_schema() -> None:
+    """`if` takes exactly 3 args; `abs` exactly 1. Bad counts must fail at
+    plan validation, not deep inside expr.evaluate()."""
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError, match=r"'if'.*3"):
+        Plan.model_validate(
+            {
+                "ops": [
+                    {"kind": "load_csv", "out": "raw", "path": "sales.csv"},
+                    {
+                        "kind": "add_column",
+                        "out": "x",
+                        "src": "raw",
+                        "name": "flag",
+                        # `if` requires exactly (cond, then, else) — only one arg
+                        # given. Should fail at schema validation.
+                        "expr": {
+                            "fn": "if",
+                            "args": [{"lit": True}],
+                        },
+                    },
+                ]
+            }
+        )
+
+    with pytest.raises(pydantic.ValidationError, match=r"'abs'.*1"):
+        Plan.model_validate(
+            {
+                "ops": [
+                    {"kind": "load_csv", "out": "raw", "path": "sales.csv"},
+                    {
+                        "kind": "add_column",
+                        "out": "x",
+                        "src": "raw",
+                        "name": "a",
+                        "expr": {
+                            "fn": "abs",
+                            "args": [{"lit": 1}, {"lit": 2}],  # abs takes 1
+                        },
+                    },
+                ]
+            }
+        )
