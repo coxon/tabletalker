@@ -40,6 +40,7 @@ from app.analyze.profiler import (
     profile_table,
 )
 from app.analyze.schema import AnalyzeResponse, Evidence, Finding
+from app.analyze.stages import record as _stage
 from app.report import REPORT_STORE, render_report
 from app.spreadsheet.executor import (
     ExecutionReport,
@@ -151,6 +152,7 @@ async def handle_analyze(
         profile = profile_table(request.workspace / request.filename)
     except ProfilerError as exc:
         raise AnalyzeFailure(str(exc), status_code=422) from exc
+    _stage("profile")
 
     # 2. Refusal heuristic — follow-ups of refused parents skip this and
     #    use the route-level refusal carry-through instead, since the
@@ -190,6 +192,7 @@ async def handle_analyze(
         workspace_filename=request.filename,
         prelude=request.prelude,
     )
+    _stage("preview_plan_req")
     try:
         plan = await make_plan(chat_client, plan_req)
     except PlannerError as exc:
@@ -198,6 +201,7 @@ async def handle_analyze(
     except LLMError as exc:
         logger.warning("LLM call failed during planning: %s", exc)
         raise AnalyzeFailure("LLM gateway error", status_code=502) from exc
+    _stage("plan_llm")
 
     # 4. Execute
     try:
@@ -214,6 +218,7 @@ async def handle_analyze(
             f"op execution failed at step {exc.op_index + 1} ({exc.op.kind})",
             status_code=422,
         ) from exc
+    _stage("execute")
 
     # 5. Evidence
     evidence_rows = build_evidence(
@@ -222,6 +227,7 @@ async def handle_analyze(
         report.op_results,
         EvidenceContext(dataset=request.dataset, table=request.filename),
     )
+    _stage("evidence")
 
     # 6. Finalise (LLM-authored Chinese narrative)
     try:
@@ -234,6 +240,7 @@ async def handle_analyze(
         raise AnalyzeFailure(
             "model did not produce a valid summary", status_code=502
         ) from exc
+    _stage("finalize_llm")
 
     # 7. Assemble
     finding = Finding(
@@ -257,6 +264,7 @@ async def handle_analyze(
     )
     REPORT_STORE.put(request_id, rendered.html)
 
+    _stage("render")
     return AnalyzeResponse(
         id=request_id,
         report_html_url=report_url,

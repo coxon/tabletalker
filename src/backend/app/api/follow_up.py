@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.analyze.handler import (
@@ -38,6 +38,7 @@ from app.analyze.handler import (
     make_followup_id,
 )
 from app.analyze.schema import AnalyzeResponse
+from app.analyze.stages import bind_stage_timer, serialize_header
 from app.session import (
     SESSION_STORE,
     extract_cohorts,
@@ -66,8 +67,14 @@ class FollowUpRequest(BaseModel):
 
 
 @router.post("/follow-up", response_model=AnalyzeResponse)
-async def follow_up(body: FollowUpRequest) -> AnalyzeResponse:
-    """Run a follow-up analysis against an existing session."""
+async def follow_up(body: FollowUpRequest, response: Response) -> AnalyzeResponse:
+    """Run a follow-up analysis against an existing session.
+
+    Like `/v1/analyze`, attaches an `X-Stage-Timings` header with
+    per-stage durations. Refusal carry-through skips the LLM stages
+    so the header reports near-zero `plan_llm` / `finalize_llm` —
+    that's the truthful representation of the work done.
+    """
 
     clean_question = body.question.strip()
     if not clean_question:
@@ -107,10 +114,12 @@ async def follow_up(body: FollowUpRequest) -> AnalyzeResponse:
     # locks the session into the parent's narrative.
     if session.refused:
         try:
-            response = build_refusal_carry_through(
-                request_id=request_id,
-                parent_summary=session.parent_summary,
-            )
+            with bind_stage_timer() as timer:
+                carry_response = build_refusal_carry_through(
+                    request_id=request_id,
+                    parent_summary=session.parent_summary,
+                )
+            response.headers["X-Stage-Timings"] = serialize_header(timer)
             _finalise_turn(
                 session.id,
                 turn_index,
@@ -123,7 +132,7 @@ async def follow_up(body: FollowUpRequest) -> AnalyzeResponse:
                 session.id, turn_index, allocation_token=alloc_token
             )
             raise
-        return response
+        return carry_response
 
     # Happy path — brief the planner with prior context, then dispatch
     # to the same pipeline the parent uses.
@@ -151,7 +160,9 @@ async def follow_up(body: FollowUpRequest) -> AnalyzeResponse:
         is_followup=True,
     )
     try:
-        response = await handle_analyze(request, chat_client=chat_client)
+        with bind_stage_timer() as timer:
+            analyze_response = await handle_analyze(request, chat_client=chat_client)
+        response.headers["X-Stage-Timings"] = serialize_header(timer)
     except AnalyzeFailure as exc:
         SESSION_STORE.discard_turn(
             session.id, turn_index, allocation_token=alloc_token
@@ -174,12 +185,12 @@ async def follow_up(body: FollowUpRequest) -> AnalyzeResponse:
     # Each individual rebind is also atomic under the GIL; a concurrent
     # `SESSION_STORE.get()` can therefore only observe consistent
     # snapshots (old triple or new triple), never a half-mutated state.
-    new_findings = list(session.findings) + list(response.findings)
+    new_findings = list(session.findings) + list(analyze_response.findings)
     new_cohorts_combined = list(session.cohorts) + list(
-        extract_cohorts(response.findings, turn_index=turn_index)
+        extract_cohorts(analyze_response.findings, turn_index=turn_index)
     )
     new_anchors = list(session.chart_anchors) + [
-        c.html_anchor for c in response.charts
+        c.html_anchor for c in analyze_response.charts
     ]
     session.findings = new_findings
     session.cohorts = new_cohorts_combined
@@ -188,10 +199,10 @@ async def follow_up(body: FollowUpRequest) -> AnalyzeResponse:
         session.id,
         turn_index,
         question=clean_question,
-        is_refusal=response.is_refusal,
+        is_refusal=analyze_response.is_refusal,
         allocation_token=alloc_token,
     )
-    return response
+    return analyze_response
 
 
 def _finalise_turn(

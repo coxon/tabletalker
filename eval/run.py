@@ -59,6 +59,10 @@ class TurnResult:
     latency_s: float
     body: dict | None = None
     error: str | None = None
+    # Per-stage durations from the backend's `X-Stage-Timings` header,
+    # if present. Missing or malformed → None (renderer treats as
+    # "not measured"). See `app.analyze.stages` on the server.
+    stage_timings: dict | None = None
 
     @property
     def ok(self) -> bool:
@@ -86,6 +90,24 @@ class RunSummary:
 # ---------------------------------------------------------------------------
 # HTTP helpers
 # ---------------------------------------------------------------------------
+
+
+def _parse_stage_timings(response: httpx.Response) -> dict | None:
+    """Decode the `X-Stage-Timings` header into a JSON dict.
+
+    Backends without the header (e.g. an older deploy) return None,
+    which the renderer reads as "not measured for this turn" rather
+    than zero. Malformed JSON is logged-but-ignored — we don't want a
+    bad header to fail an otherwise-good run.
+    """
+    raw = response.headers.get("X-Stage-Timings")
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 async def _post_analyze(
@@ -119,6 +141,9 @@ async def _post_analyze(
         error=None
         if response.status_code == 200
         else (response.text[:500] if body is None else None),
+        stage_timings=_parse_stage_timings(response)
+        if response.status_code == 200
+        else None,
     )
 
 
@@ -150,6 +175,9 @@ async def _post_followup(
         error=None
         if response.status_code == 200
         else (response.text[:500] if body is None else None),
+        stage_timings=_parse_stage_timings(response)
+        if response.status_code == 200
+        else None,
     )
 
 
@@ -310,6 +338,12 @@ def compute_metrics(results: Iterable[CaseResult]) -> dict:
             report_ok += 1
     report_render_rate = report_ok / len(main_oks) if main_oks else 0.0
 
+    # Per-stage P50/P95 across all 200-OK main turns. The backend
+    # publishes these in `X-Stage-Timings`; missing turns (older deploys
+    # without the header) are skipped so the percentile is over what we
+    # actually measured.
+    stage_p50, stage_p95, stage_n = _stage_percentiles(main_oks)
+
     return {
         "datasets_total": main_total,
         "main_success_count": len(main_oks),
@@ -328,7 +362,66 @@ def compute_metrics(results: Iterable[CaseResult]) -> dict:
         "followup_success_rate": followup_success,
         "session_carry_rate": session_carry,
         "report_render_rate": report_render_rate,
+        # Per-stage timings (seconds). One key per stage from
+        # `app.analyze.stages.STAGE_ORDER`. Renderer matches on the
+        # stage name; missing stages are skipped in the table.
+        "stage_p50_s": stage_p50,
+        "stage_p95_s": stage_p95,
+        "stage_sample_n": stage_n,
     }
+
+
+# Stage names mirror `app.analyze.stages.STAGE_ORDER` on the server. We
+# duplicate them here rather than importing because the eval runner is a
+# standalone client — keeping it import-free of the backend means it can
+# run against a remote deploy without the source tree on the local box.
+_STAGE_ORDER: tuple[str, ...] = (
+    "profile",
+    "preview_plan_req",
+    "plan_llm",
+    "execute",
+    "evidence",
+    "finalize_llm",
+    "render",
+)
+
+
+def _stage_percentiles(
+    main_oks: list[CaseResult],
+) -> tuple[dict[str, float], dict[str, float], dict[str, int]]:
+    """Compute P50/P95 per stage across successful main turns.
+
+    Returns three parallel dicts keyed by stage name:
+      - `stage_p50_s`: median duration in seconds
+      - `stage_p95_s`: p95 duration (nearest-rank, ceil-based)
+      - `stage_sample_n`: how many turns contributed (so the renderer
+        can show "未实现" when N == 0 for an upgraded stage)
+
+    A stage is included only when at least one turn reported it. We
+    don't fabricate zeros for missing stages — that would let an
+    older-deploy run silently inflate P50 toward zero.
+    """
+    p50: dict[str, float] = {}
+    p95: dict[str, float] = {}
+    sample_n: dict[str, int] = {}
+    for stage in _STAGE_ORDER:
+        samples: list[float] = []
+        for r in main_oks:
+            timings = r.main.stage_timings or {}
+            stages_dict = timings.get("stages") if isinstance(timings, dict) else None
+            if not isinstance(stages_dict, dict):
+                continue
+            v = stages_dict.get(stage)
+            if isinstance(v, (int, float)) and v >= 0:
+                samples.append(float(v))
+        if not samples:
+            continue
+        samples.sort()
+        sample_n[stage] = len(samples)
+        p50[stage] = samples[len(samples) // 2]
+        idx = min(math.ceil(len(samples) * 0.95) - 1, len(samples) - 1)
+        p95[stage] = samples[max(idx, 0)]
+    return p50, p95, sample_n
 
 
 # ---------------------------------------------------------------------------
@@ -491,6 +584,7 @@ def _dict_to_case_result(data: dict) -> CaseResult:
             latency_s=d["latency_s"],
             body=d.get("body"),
             error=d.get("error"),
+            stage_timings=d.get("stage_timings"),
         )
 
     main_turn = _turn(data["main"])

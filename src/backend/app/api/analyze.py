@@ -27,7 +27,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
 
 from app.analyze.handler import (
     AnalyzeFailure,
@@ -35,6 +35,7 @@ from app.analyze.handler import (
     handle_analyze,
 )
 from app.analyze.schema import AnalyzeResponse
+from app.analyze.stages import bind_stage_timer, serialize_header
 from app.limits import UPLOAD_MAX_BYTES
 from app.session import (
     SESSION_STORE,
@@ -50,11 +51,17 @@ router = APIRouter(prefix="/v1", tags=["analyze"])
 
 @router.post("/analyze", response_model=AnalyzeResponse)
 async def analyze(
+    response: Response,
     file: UploadFile = File(...),  # noqa: B008 — FastAPI DI idiom
     question: str = Form(...),
     dataset: str | None = Form(default=None),
 ) -> AnalyzeResponse:
-    """Run a single-turn analysis. Returns the contract-shape JSON."""
+    """Run a single-turn analysis. Returns the contract-shape JSON.
+
+    The response also carries an `X-Stage-Timings` header with per-stage
+    durations from the pipeline (see `app.analyze.stages`). The header is
+    informational — the JSON contract shape is unchanged.
+    """
 
     # Normalise once: surrounding whitespace shouldn't change the request
     # identity, the LLM prompt, or the evidence `dataset` label.
@@ -91,7 +98,9 @@ async def analyze(
             question=clean_question,
         )
         try:
-            response = await handle_analyze(request, chat_client=chat_client)
+            with bind_stage_timer() as timer:
+                analyze_response = await handle_analyze(request, chat_client=chat_client)
+            response.headers["X-Stage-Timings"] = serialize_header(timer)
         except AnalyzeFailure as exc:
             raise HTTPException(exc.status_code, str(exc)) from exc
 
@@ -99,9 +108,9 @@ async def analyze(
         # this *before* the early-return so even refused parents are
         # addressable — the contract requires the same shape, and the
         # follow-up handler enforces refusal carry-through.
-        cohorts = extract_cohorts(response.findings, turn_index=0)
+        cohorts = extract_cohorts(analyze_response.findings, turn_index=0)
         session = session_from_response(
-            response,
+            analyze_response,
             workspace_dir=workspace,
             filename=filename,
             dataset=effective_dataset,
@@ -112,7 +121,7 @@ async def analyze(
         # Workspace ownership has transferred to the session store — do
         # not rmtree it on the way out.
         keep_workspace = True
-        return response
+        return analyze_response
     finally:
         if not keep_workspace:
             shutil.rmtree(workspace, ignore_errors=True)

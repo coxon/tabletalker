@@ -72,6 +72,52 @@ def _trap_actual_is_refusal(trap: dict) -> bool | None:
     return value if isinstance(value, bool) else None
 
 
+# Display labels for each stage in the per-stage perf table. Keys
+# match `app.analyze.stages.STAGE_ORDER` on the server / `_STAGE_ORDER`
+# in `run.py`. Order in this dict drives row order in the rendered
+# table. Targets are aspirational — they're informational, not graded.
+_STAGE_DISPLAY: tuple[tuple[str, str, str, str], ...] = (
+    ("profile",          "Profile 阶段 P50/P95 (s)",     "≤ 0.1",  "确定性；pandas 读取 + 类型推断"),
+    ("preview_plan_req", "Preview+PlanReq 阶段 P50/P95 (s)", "≤ 0.1",  "确定性；预读 5 行并组装 PlanRequest"),
+    ("plan_llm",         "Plan(LLM) 阶段 P50/P95 (s)",   "≤ 20",   "planner LLM round-trip（主瓶颈）"),
+    ("execute",          "Execute 阶段 P50/P95 (s)",     "≤ 1.0",  "确定性；算子顺序执行"),
+    ("evidence",         "Evidence 阶段 P50/P95 (s)",    "≤ 0.1",  "确定性；证据行抽取"),
+    ("finalize_llm",     "Finalize(LLM) 阶段 P50/P95 (s)", "≤ 10", "narrative LLM round-trip"),
+    ("render",           "Render 阶段 P50/P95 (s)",      "≤ 0.5",  "Jinja HTML + 图表选择"),
+)
+
+
+def _stage_rows(
+    stage_p50: dict, stage_p95: dict, stage_n: dict
+) -> list[str]:
+    """Build markdown rows for §9 stage breakdown.
+
+    Returns one row per stage that has samples; skipped stages contribute
+    a `未实现` row so the table stays a stable shape across runs even
+    when the backend is older than the eval client.
+    """
+    rows: list[str] = []
+    for key, label, target, note in _STAGE_DISPLAY:
+        n = stage_n.get(key, 0) if isinstance(stage_n, dict) else 0
+        if not isinstance(n, int) or n <= 0:
+            rows.append(f"| {label} | 未实现 | {target} | {note} |")
+            continue
+        p50_v = stage_p50.get(key)
+        p95_v = stage_p95.get(key)
+        if not isinstance(p50_v, (int, float)) or not isinstance(p95_v, (int, float)):
+            rows.append(f"| {label} | 未实现 | {target} | {note} |")
+            continue
+        # Format short values (sub-second) with more precision so a
+        # 23 ms profile stage doesn't render as "0.0".
+        def _fmt(v: float) -> str:
+            return f"{v:.3f}" if v < 1.0 else f"{v:.1f}"
+
+        rows.append(
+            f"| {label} | {_fmt(float(p50_v))} / {_fmt(float(p95_v))} (n={n}) | {target} | {note} |"
+        )
+    return rows
+
+
 def render(run_dir: Path, commit_sha: str | None) -> str:
     summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
     metrics = summary["metrics"]
@@ -114,6 +160,14 @@ def render(run_dir: Path, commit_sha: str | None) -> str:
     fu_succ = metrics["followup_success_rate"]
     session_carry = metrics["session_carry_rate"]
     report_render = metrics["report_render_rate"]
+
+    # Per-stage timings: render only stages with samples > 0. Older
+    # runs (pre-instrumentation) report nothing here, in which case we
+    # fall through to the legacy single-line P50/P95 only.
+    stage_p50 = metrics.get("stage_p50_s") or {}
+    stage_p95 = metrics.get("stage_p95_s") or {}
+    stage_n = metrics.get("stage_sample_n") or {}
+    stage_rows = _stage_rows(stage_p50, stage_p95, stage_n)
 
     # Per-trap-category breakdown (subset of trap_total). Only refusal-
     # expected traps roll into the must-refuse categories; non-refusal
@@ -251,6 +305,7 @@ def render(run_dir: Path, commit_sha: str | None) -> str:
 | 冷启动 → 首次响应 (s) | 未实现 | ≤ 5 | uvicorn warm-up 未单独计时 |
 | 单次问答 P50 (s) | {_fmt_seconds(p50)} | ≤ 30 | 注意：含 LLM round-trip；本机 LLM 网关较慢 |
 | 单次问答 P95 (s) | {_fmt_seconds(p95)} | ≤ 60 | 同上 |
+{chr(10).join(stage_rows)}
 | 内存峰值 (MB) | 未实现 | ≤ 1024 | 未上 memory-profiler |
 
 ---
