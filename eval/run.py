@@ -210,7 +210,11 @@ def compute_metrics(results: Iterable[CaseResult]) -> dict:
 
     plan_success_rate = len(main_oks) / main_total if main_total else 0.0
 
-    main_latencies = sorted(r.main.latency_s for r in results)
+    # Latency stats are conditioned on a successful 200 main turn —
+    # otherwise a 180 s read-timeout would always become the p95
+    # regardless of how the underlying pipeline performs. Failed
+    # mains are still visible in `main_success_rate`.
+    main_latencies = sorted(r.main.latency_s for r in main_oks)
     p50 = main_latencies[len(main_latencies) // 2] if main_latencies else 0.0
     # `math.ceil(N * 0.95)` gives the 95th-percentile rank (1-based) per
     # the nearest-rank definition; clamp to N-1 because Python is 0-based
@@ -352,7 +356,22 @@ async def main_async(args: argparse.Namespace) -> int:
         run_dir.mkdir(parents=True, exist_ok=True)
         keep = []
 
+    # Reporting window: when resuming a run we keep the *original*
+    # started_at so the metrics file stamps the full window across
+    # multiple resume passes. Only fall back to "now" if there is no
+    # prior summary or it can't be parsed.
     started = time.strftime("%Y-%m-%dT%H:%M:%S")
+    if args.resume is not None and keep:
+        prior = run_dir / "summary.json"
+        if prior.exists():
+            try:
+                prior_started = json.loads(prior.read_text(encoding="utf-8")).get(
+                    "started_at"
+                )
+                if isinstance(prior_started, str) and prior_started:
+                    started = prior_started
+            except (OSError, ValueError):
+                pass
     print(f"→ backend: {args.backend}")
     print(f"→ run dir: {run_dir}")
     print(f"→ cases:   {len(cases)}\n")
@@ -425,6 +444,17 @@ def _split_resume(
     """
     keep: list[CaseResult] = []
     redo: list[dict] = []
+
+    def _ok(turn: dict | None) -> bool:
+        # Mirror TurnResult.ok — a saved 200 with body=null happened
+        # during one regression where the eval client logged the wrong
+        # response shape; it should re-run, not be salvaged.
+        return (
+            isinstance(turn, dict)
+            and turn.get("status_code") == 200
+            and isinstance(turn.get("body"), dict)
+        )
+
     for case in cases:
         case_id = case["id"]
         path = run_dir / f"{case_id}.json"
@@ -436,24 +466,17 @@ def _split_resume(
         except (OSError, ValueError):
             redo.append(case)
             continue
-        if data.get("main", {}).get("status_code") != 200:
+        if not _ok(data.get("main")):
             redo.append(case)
             continue
-        if "followup" in case:
-            fu = data.get("followup")
-            if not fu or fu.get("status_code") != 200:
-                redo.append(case)
-                continue
-        if "trap" in case:
-            trap = data.get("trap")
-            # Only 200 counts as a successful trap turn — that's the
-            # contract shape we score against. A 422 means the analyze
-            # endpoint rejected the upload entirely; we'd never be
-            # able to read `is_refusal` off the body, so it has to be
-            # re-run.
-            if not trap or trap.get("status_code") != 200:
-                redo.append(case)
-                continue
+        if "followup" in case and not _ok(data.get("followup")):
+            redo.append(case)
+            continue
+        if "trap" in case and not _ok(data.get("trap")):
+            # Only 200 with a body counts as a successful trap turn —
+            # that's the contract shape we score against.
+            redo.append(case)
+            continue
         keep.append(_dict_to_case_result(data))
     return keep, redo
 

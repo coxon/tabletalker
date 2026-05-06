@@ -7,8 +7,8 @@
 > `docs/refusal-policy.md` §"why we don't fake metrics".
 
 - **Repository:** TableTalker
-- **Reporting commit:** `a15860e`
-- **Reporting window:** 2026-05-06T15:52:15 → 2026-05-06T16:00:38
+- **Reporting commit:** `7ae8454`
+- **Reporting window:** 2026-05-06T15:52:15 → 2026-05-06T17:32:54
 - **Datasets evaluated:** 15 / 15
 - **Source run dir:** `eval/runs/20260506-132000/`
 
@@ -51,7 +51,7 @@
 |---|---|---|---|
 | 报告渲染成功率 | 100.0% | ≥ 99 % | `report_html_url` 存在并指向 `/reports/{id}.html` |
 | 图表种类覆盖 | 3 种 | ≥ 3 种 | run.py 里跨用例统计 distinct chart.type |
-| 报告平均字数 | 274 | 800 – 2000 | summary 字符数（汉字按 1 计） |
+| 报告平均字数 | 299 | 800 – 2000 | summary 字符数（汉字按 1 计） |
 
 ## 6. 拒答与陷阱 (Refusal on trap questions)
 
@@ -68,8 +68,8 @@
 
 | 指标 | 当前值 | 目标 | 备注 |
 |---|---|---|---|
-| 跟进调用成功率 | 86.7% | 100 % 同会话 | follow-up 请求 200 比例 |
-| 会话状态保留 | 86.7% | 100 % | follow-up id 是否携带 parent 前缀 |
+| 跟进调用成功率 | 93.3% | 100 % 同会话 | follow-up 请求 200 比例 |
+| 会话状态保留 | 93.3% | 100 % | follow-up id 是否携带 parent 前缀 |
 | 代词消解准确率 | 未实现 | ≥ 90 % | 需要带 ground-truth 的人工评分 |
 | 上下文一致性 | 未实现 | ≥ 95 % | 需要带 ground-truth 的人工评分 |
 
@@ -100,7 +100,7 @@
 | 指标 | 当前值 | 目标 | 备注 |
 |---|---|---|---|
 | 冷启动 → 首次响应 (s) | 未实现 | ≤ 5 | uvicorn warm-up 未单独计时 |
-| 单次问答 P50 (s) | 109.6 | ≤ 30 | 注意：含 LLM round-trip；本机 LLM 网关较慢 |
+| 单次问答 P50 (s) | 116.5 | ≤ 30 | 注意：含 LLM round-trip；本机 LLM 网关较慢 |
 | 单次问答 P95 (s) | 138.4 | ≤ 60 | 同上 |
 | 内存峰值 (MB) | 未实现 | ≤ 1024 | 未上 memory-profiler |
 
