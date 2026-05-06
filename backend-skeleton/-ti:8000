@@ -1,0 +1,58 @@
+INFO:     Will watch for changes in these directories: ['/Users/zhangql/cc/黑松客比赛asiainfo/backend-skeleton']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [89880] using WatchFiles
+INFO:     Started server process [89885]
+INFO:     Waiting for application startup.
+2026-05-06 18:28:29.009 | INFO     | main:lifespan:38 - Table-Talker 后端启动
+2026-05-06 18:28:29.009 | INFO     | main:lifespan:39 - Mock 模式: false
+2026-05-06 18:28:29.009 | INFO     | main:lifespan:40 - LLM 提供方: qwen
+2026-05-06 18:28:29.009 | INFO     | main:lifespan:45 - 已加载 schema 缓存：schemas.json
+2026-05-06 18:28:29.009 | INFO     | main:lifespan:53 - SQLite 表已就绪（dashboards / dashboard_cards / reports）
+INFO:     Application startup complete.
+INFO:     127.0.0.1:62147 - "OPTIONS /api/auth/me HTTP/1.1" 200 OK
+2026-05-06 18:28:39.308 | WARNING  | middleware.auth:decode_token:49 - JWT 已过期
+2026-05-06 18:28:39.308 | WARNING  | middleware.request_id:dispatch:47 - [req_7352de5cc88e] GET /api/auth/me → 401 · 4ms
+INFO:     127.0.0.1:62147 - "GET /api/auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:62147 - "OPTIONS /api/auth/login HTTP/1.1" 200 OK
+2026-05-06 18:28:40.605 | INFO     | middleware.request_id:dispatch:47 - [req_d813d452d433] POST /api/auth/login → 200 · 2ms
+INFO:     127.0.0.1:62149 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62149 - "OPTIONS /api/chat/stream HTTP/1.1" 200 OK
+2026-05-06 18:28:44.301 | INFO     | api.cache:replay_cached:53 - [CACHE_REPLAY] 'Q1 华南区销售为什么环比下滑？' · 35 个事件
+2026-05-06 18:28:44.301 | INFO     | middleware.request_id:dispatch:47 - [req_900b9f637a82] POST /api/chat/stream → 200 · 3ms
+INFO:     127.0.0.1:62147 - "POST /api/chat/stream HTTP/1.1" 200 OK
+2026-05-06 18:28:48.853 | INFO     | middleware.request_id:dispatch:47 - [req_a5a2202a57ac] POST /api/chat/stream → 200 · 396ms
+INFO:     127.0.0.1:62147 - "POST /api/chat/stream HTTP/1.1" 200 OK
+2026-05-06 18:28:48.938 | INFO     | agent.steps:_load_graphrag_index:94 - 已加载 GraphRAG 索引：graphrag_index.json (共 6 个社区)
+2026-05-06 18:28:48.965 | DEBUG    | llm.adapter:chat_complete:142 - LLM call: model=aliyun/deepseek-v3.2 task=router json_mode=True
+2026-05-06 18:29:05.902 | INFO     | llm.adapter:chat_complete:145 - LLM ok: model=aliyun/deepseek-v3.2 task=router ms=16937 tokens_out=323
+2026-05-06 18:29:05.905 | INFO     | agent.steps:_load_business_terms:163 - 已加载业务术语词典：business_terms.json (共 113 条)
+2026-05-06 18:29:05.909 | DEBUG    | llm.adapter:chat_complete:142 - LLM call: model=aliyun/qwen3.6-plus task=codegen json_mode=True
+2026-05-06 18:29:38.277 | INFO     | llm.adapter:chat_complete:145 - LLM ok: model=aliyun/qwen3.6-plus task=codegen ms=32367 tokens_out=291
+2026-05-06 18:29:38.467 | DEBUG    | llm.adapter:chat_complete:142 - LLM call: model=aliyun/deepseek-v3.2 task=router json_mode=True
+2026-05-06 18:29:38.469 | DEBUG    | llm.adapter:chat_complete:142 - LLM call: model=aliyun/deepseek-v3.2 task=summary json_mode=False
+2026-05-06 18:29:46.891 | INFO     | llm.adapter:chat_complete:145 - LLM ok: model=aliyun/deepseek-v3.2 task=router ms=8423 tokens_out=297
+2026-05-06 18:29:57.399 | INFO     | llm.adapter:chat_complete:145 - LLM ok: model=aliyun/deepseek-v3.2 task=summary ms=18929 tokens_out=240
+2026-05-06 18:30:09.240 | INFO     | middleware.request_id:dispatch:47 - [req_63e6c78acd42] POST /api/chat/stream → 200 · 1ms
+INFO:     127.0.0.1:62624 - "POST /api/chat/stream HTTP/1.1" 200 OK
+2026-05-06 18:30:09.418 | DEBUG    | llm.adapter:chat_complete:142 - LLM call: model=aliyun/deepseek-v3.2 task=router json_mode=True
+2026-05-06 18:30:26.299 | INFO     | llm.adapter:chat_complete:145 - LLM ok: model=aliyun/deepseek-v3.2 task=router ms=16881 tokens_out=227
+2026-05-06 18:30:26.301 | DEBUG    | llm.adapter:chat_complete:142 - LLM call: model=aliyun/qwen3.6-plus task=codegen json_mode=True
+2026-05-06 18:31:39.190 | INFO     | llm.adapter:chat_complete:145 - LLM ok: model=aliyun/qwen3.6-plus task=codegen ms=72889 tokens_out=785
+2026-05-06 18:31:39.365 | DEBUG    | llm.adapter:chat_complete:142 - LLM call: model=aliyun/deepseek-v3.2 task=router json_mode=True
+2026-05-06 18:31:39.367 | DEBUG    | llm.adapter:chat_complete:142 - LLM call: model=aliyun/deepseek-v3.2 task=summary json_mode=False
+2026-05-06 18:31:53.225 | INFO     | llm.adapter:chat_complete:145 - LLM ok: model=aliyun/deepseek-v3.2 task=router ms=13860 tokens_out=490
+2026-05-06 18:31:59.133 | INFO     | llm.adapter:chat_complete:145 - LLM ok: model=aliyun/deepseek-v3.2 task=summary ms=19765 tokens_out=211
+2026-05-06 18:32:38.028 | WARNING  | middleware.auth:decode_token:49 - JWT 已过期
+2026-05-06 18:32:38.029 | WARNING  | middleware.request_id:dispatch:47 - [req_daa41b94fc4f] GET /api/auth/me → 401 · 2ms
+INFO:     127.0.0.1:63538 - "GET /api/auth/me HTTP/1.1" 401 Unauthorized
+2026-05-06 18:32:40.018 | INFO     | middleware.request_id:dispatch:47 - [req_0c3d7bdb9900] POST /api/auth/login → 200 · 1ms
+INFO:     127.0.0.1:63538 - "POST /api/auth/login HTTP/1.1" 200 OK
+2026-05-06 18:32:46.624 | INFO     | middleware.request_id:dispatch:47 - [req_354473291ee4] POST /api/chat/stream → 200 · 2ms
+INFO:     127.0.0.1:63585 - "POST /api/chat/stream HTTP/1.1" 200 OK
+2026-05-06 18:32:46.713 | DEBUG    | llm.adapter:chat_complete:142 - LLM call: model=aliyun/deepseek-v3.2 task=router json_mode=True
+2026-05-06 18:32:55.598 | INFO     | llm.adapter:chat_complete:145 - LLM ok: model=aliyun/deepseek-v3.2 task=router ms=8885 tokens_out=207
+2026-05-06 18:32:55.605 | DEBUG    | llm.adapter:chat_complete:142 - LLM call: model=aliyun/qwen3.6-plus task=codegen json_mode=True
+2026-05-06 18:33:53.613 | INFO     | llm.adapter:chat_complete:145 - LLM ok: model=aliyun/qwen3.6-plus task=codegen ms=58008 tokens_out=341
+2026-05-06 18:34:36.771 | INFO     | api.cache:replay_cached:53 - [CACHE_REPLAY] '近 6 个月销售走势' · 35 个事件
+2026-05-06 18:34:36.775 | INFO     | middleware.request_id:dispatch:47 - [req_3b4be3308a54] POST /api/chat/stream → 200 · 7ms
+INFO:     127.0.0.1:64188 - "POST /api/chat/stream HTTP/1.1" 200 OK

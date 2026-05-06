@@ -1,0 +1,1 @@
+LLM_MODEL_CODEGEN=aliyun/qwen3.6-plus .env

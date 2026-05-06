@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>Table-Talker · 5 秒开场</title>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:wght@500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0e1f17; --acc: #1aa074; --acc-2: #2dd494;
+    --ink: #f0f7f3; --ink-3: #8ba097; --warn: #d4a82d;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%; background: var(--bg); color: var(--ink);
+    font-family: "Inter", -apple-system, "PingFang SC", sans-serif;
+    overflow: hidden;
+  }
+  .stage { position: relative; width: 100%; height: 100vh; overflow: hidden; }
+
+  /* 14 步推理环 */
+  .rings {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: 1000px; height: 1000px;
+  }
+  .ring {
+    position: absolute; left: 50%; top: 50%;
+    border: 1px solid var(--acc);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    opacity: 0;
+    animation: ringIn 1.6s cubic-bezier(.4,0,.2,1) forwards, ringPulse 4s ease-in-out infinite;
+  }
+  @keyframes ringIn {
+    from { opacity: 0; transform: translate(-50%, -50%) scale(0); }
+    to { opacity: 0.4; transform: translate(-50%, -50%) scale(1); }
+  }
+  @keyframes ringPulse {
+    0%, 100% { opacity: 0.18; }
+    50% { opacity: 0.35; }
+  }
+
+  /* 14 步节点 */
+  .nodes {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: 460px; height: 460px;
+  }
+  .node {
+    position: absolute; width: 12px; height: 12px;
+    background: var(--acc-2); border-radius: 50%;
+    box-shadow: 0 0 16px var(--acc-2);
+    opacity: 0;
+    animation: nodePop 0.6s ease-out forwards;
+  }
+  @keyframes nodePop {
+    from { opacity: 0; transform: scale(0); }
+    50% { opacity: 1; transform: scale(1.5); }
+    to { opacity: 0.8; transform: scale(1); }
+  }
+
+  /* 中心 logo */
+  .center {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    text-align: center;
+    opacity: 0;
+    animation: centerFadeIn 1s ease-out 1.2s forwards;
+  }
+  @keyframes centerFadeIn {
+    from { opacity: 0; transform: translate(-50%, -50%) scale(0.85); }
+    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  }
+  .logo-square {
+    width: 96px; height: 96px;
+    background: linear-gradient(135deg, var(--acc), var(--acc-2));
+    border-radius: 22px;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 24px;
+    font-family: "Newsreader", serif; font-size: 56px; font-weight: 600; color: var(--bg);
+    box-shadow: 0 12px 60px rgba(45,212,148,0.4);
+  }
+  .name {
+    font-family: "Newsreader", serif; font-size: 56px; font-weight: 600;
+    letter-spacing: -0.02em; line-height: 1.1;
+  }
+  .tagline {
+    margin-top: 12px; font-size: 16px; color: var(--ink-3);
+    font-family: "JetBrains Mono", monospace; letter-spacing: 0.05em;
+    overflow: hidden; white-space: nowrap;
+    width: 0;
+    animation: typeOut 1.2s steps(20) 2.0s forwards;
+  }
+  @keyframes typeOut {
+    to { width: 14ch; }
+  }
+
+  /* 数据流粒子 */
+  .particle {
+    position: absolute;
+    width: 4px; height: 4px;
+    background: var(--acc-2);
+    border-radius: 50%;
+    opacity: 0.8;
+    box-shadow: 0 0 8px var(--acc-2);
+    animation: particleFlow 4s linear infinite;
+  }
+  @keyframes particleFlow {
+    0% { transform: translate(-100vw, var(--y, 0px)) scale(0); opacity: 0; }
+    10% { opacity: 0.8; transform: translate(-90vw, var(--y, 0px)) scale(1); }
+    90% { opacity: 0.8; }
+    100% { transform: translate(50vw, var(--y, 0px)) scale(0); opacity: 0; }
+  }
+
+  /* 闭幕字幕 */
+  .closing {
+    position: absolute; left: 50%; bottom: 80px; transform: translateX(-50%);
+    text-align: center;
+    opacity: 0;
+    animation: closingIn 0.8s ease-out 3.4s forwards;
+  }
+  @keyframes closingIn {
+    from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+    to { opacity: 1; transform: translateX(-50%) translateY(0); }
+  }
+  .closing-text {
+    font-family: "Newsreader", serif; font-style: italic;
+    font-size: 18px; color: var(--ink-3);
+  }
+  .closing-team {
+    margin-top: 8px;
+    font-size: 12px; font-family: "JetBrains Mono", monospace;
+    color: var(--warn); letter-spacing: 0.1em;
+  }
+</style>
+</head>
+<body>
+
+<div class="stage">
+
+  <!-- 14 个推理环（同心圆波纹）-->
+  <div class="rings">
+    <div class="ring" style="width: 200px; height: 200px; animation-delay: 0.0s;"></div>
+    <div class="ring" style="width: 280px; height: 280px; animation-delay: 0.05s;"></div>
+    <div class="ring" style="width: 360px; height: 360px; animation-delay: 0.10s;"></div>
+    <div class="ring" style="width: 440px; height: 440px; animation-delay: 0.15s;"></div>
+    <div class="ring" style="width: 520px; height: 520px; animation-delay: 0.20s;"></div>
+    <div class="ring" style="width: 600px; height: 600px; animation-delay: 0.25s;"></div>
+    <div class="ring" style="width: 680px; height: 680px; animation-delay: 0.30s;"></div>
+    <div class="ring" style="width: 760px; height: 760px; animation-delay: 0.35s;"></div>
+    <div class="ring" style="width: 840px; height: 840px; animation-delay: 0.40s;"></div>
+    <div class="ring" style="width: 920px; height: 920px; animation-delay: 0.45s;"></div>
+  </div>
+
+  <!-- 14 步节点（围在中环上）-->
+  <div class="nodes" id="nodes"></div>
+
+  <!-- 数据粒子流（横向）-->
+  <div id="particles"></div>
+
+  <!-- 中心 logo -->
+  <div class="center">
+    <div class="logo-square">T</div>
+    <div class="name">Table-Talker</div>
+    <div class="tagline">Ask. See. Decide.</div>
+  </div>
+
+  <!-- 闭幕 -->
+  <div class="closing">
+    <div class="closing-text">对话即洞察 · 让数据自己说话</div>
+    <div class="closing-team">2026 黑客马拉松 · 赛题四 · 队长 张扬</div>
+  </div>
+
+</div>
+
+<script>
+// 14 个节点等距分布在中环上
+const nodesEl = document.getElementById("nodes");
+const total = 14;
+const radius = 230;
+for (let i = 0; i < total; i++) {
+  const angle = (i / total) * Math.PI * 2 - Math.PI / 2;
+  const x = Math.cos(angle) * radius + 230;
+  const y = Math.sin(angle) * radius + 230;
+  const node = document.createElement("div");
+  node.className = "node";
+  node.style.left = x + "px";
+  node.style.top = y + "px";
+  node.style.animationDelay = (i * 0.08) + "s";
+  nodesEl.appendChild(node);
+}
+
+// 横向数据粒子流
+const partsEl = document.getElementById("particles");
+for (let i = 0; i < 30; i++) {
+  const p = document.createElement("div");
+  p.className = "particle";
+  const yOffset = (Math.random() - 0.5) * window.innerHeight * 0.8;
+  p.style.setProperty("--y", yOffset + "px");
+  p.style.top = "50%";
+  p.style.left = "100vw";
+  p.style.animationDelay = (Math.random() * 4) + "s";
+  partsEl.appendChild(p);
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>Table-Talker 架构图集</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "PingFang SC", sans-serif; background: #fafafa; padding: 32px; }
+  h1 { font-size: 28px; margin-bottom: 6px; color: #1a1d1a; }
+  h2 { font-size: 18px; margin-bottom: 8px; color: #15875e; margin-top: 0; }
+  .meta { font-size: 13px; color: #6b6e69; margin-bottom: 32px; }
+  .figure {
+    background: #fff; border: 1px solid #e5e5dd; border-radius: 12px;
+    padding: 24px; margin-bottom: 24px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+  }
+  .desc { font-size: 13px; color: #6b6e69; margin: 6px 0 16px; line-height: 1.6; }
+  .download-tip {
+    background: #fff8e6; border: 1px solid #f0d278;
+    padding: 12px 16px; border-radius: 8px;
+    font-size: 12.5px; color: #8a6d2f;
+    margin-bottom: 24px;
+  }
+  .download-tip code {
+    background: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 3px;
+    font-family: "JetBrains Mono", monospace; font-size: 11.5px;
+  }
+  .mermaid { display: flex; justify-content: center; }
+  .toc {
+    position: fixed; right: 24px; top: 24px; width: 240px;
+    background: #fff; border: 1px solid #e5e5dd; border-radius: 10px;
+    padding: 16px; font-size: 13px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06); z-index: 100;
+  }
+  .toc h3 { font-size: 12px; color: #6b6e69; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .toc a { display: block; color: #1a1d1a; text-decoration: none; padding: 4px 0; }
+  .toc a:hover { color: #15875e; }
+  .container { max-width: 1100px; margin: 0 auto; padding-right: 280px; }
+  @media (max-width: 1200px) {
+    .toc { display: none; }
+    .container { padding-right: 0; }
+  }
+</style>
+</head>
+<body>
+
+<div class="toc">
+  <h3>目录</h3>
+  <a href="#fig-1">1. 应用架构图</a>
+  <a href="#fig-2">2. 数据模型 ER</a>
+  <a href="#fig-3">3. 业务主流程</a>
+  <a href="#fig-4">4. Agent 14 步状态机</a>
+  <a href="#fig-5">5. 多模型路由</a>
+  <a href="#fig-6">6. 跨数据集 JOIN 策略</a>
+  <a href="#fig-7">7. 错误处理流程</a>
+  <a href="#fig-8">8. 部署拓扑</a>
+</div>
+
+<div class="container">
+
+<h1>Table-Talker 架构图集</h1>
+<div class="meta">
+  v1.0 · 2026-05-04 · 决赛汇报使用 · mermaid 源码可单独导出 SVG
+</div>
+
+<div class="download-tip">
+  💡 <b>如何把 mermaid 图导出为 SVG / PNG</b>：
+  <br/>1) 打开 <code>https://mermaid.live</code>
+  <br/>2) 把下面任意图的源码（点击图右上角"View source"或参见 PRD 第 10 章）粘进去
+  <br/>3) Actions → "Download as SVG" / "Download as PNG"
+  <br/>4) 放到 <code>架构文档/diagrams/</code> 目录给决赛 PPT / 视频用
+</div>
+
+<!-- ============ 图 1：应用架构 ============ -->
+<div class="figure" id="fig-1">
+  <h2>1. 应用架构图</h2>
+  <p class="desc">5 层分层：用户层 → 接入层 → 业务服务层 → Agent 子系统 → 数据层。Agent 子系统的 8 个原子能力可灵活组合。</p>
+  <div class="mermaid">
+graph TB
+  subgraph 用户层
+    U1[业务管理者]
+    U2[业务运营]
+    U3[数据分析师]
+    U4[评委账号]
+  end
+  subgraph 接入层
+    W1[Web 端 React SPA]
+    W2[OpenAPI 给上游系统]
+  end
+  subgraph 业务服务层
+    S1[对话服务]
+    S2[Agent 推理引擎]
+    S3[看板服务]
+    S4[报告服务]
+    S5[评测服务]
+    S6[元数据服务]
+    S7[权限/审计 IAM]
+  end
+  subgraph Agent子系统
+    A1[Router 意图路由]
+    A2[GraphRAG 社区检索]
+    A3[TTL 推理 语义补全]
+    A4[CodeGen NL→SQL]
+    A5[Sandbox 受限执行]
+    A6[ChartPicker 自动选图]
+    A7[Summarizer 双模式总结]
+    A8[Critic 结果检查]
+  end
+  subgraph 数据层
+    D1[(SQLite 业务库)]
+    D2[(LanceDB 向量库)]
+    D3[(RDF/Turtle KG)]
+    D4[(MinIO 对象存储)]
+    D5[(Redis 缓存)]
+    D6[(DuckDB 查询引擎)]
+  end
+  subgraph 外部系统
+    E1[通义千问 3.6 Plus]
+    E2[DeepSeek 3.2]
+    E3[Kimi K2.5]
+    E4[企业 DB]
+    E5[亚信数据中台]
+  end
+
+  U1 & U2 & U3 & U4 --> W1
+  W1 --> S1 & S3 & S4 & S5 & S6 & S7
+  S1 --> S2
+  S2 --> A1 --> A2 --> A3 --> A4 --> A5 --> A6 --> A7 --> A8
+  S2 --> E1 & E2 & E3
+  A2 --> D2 & D3
+  A4 --> D6
+  A5 --> D6
+  S3 & S4 & S6 --> D1 & D4
+  S1 & S2 --> D5
+  A4 --> E4 & E5
+
+  style S2 fill:#e7f1ec,stroke:#15875e,stroke-width:2px
+  style A1 fill:#fff7e0
+  style A2 fill:#fff7e0
+  style A3 fill:#fff7e0
+  style A4 fill:#fff7e0
+  style A5 fill:#fff7e0
+  style A6 fill:#fff7e0
+  style A7 fill:#fff7e0
+  style A8 fill:#fff7e0
+  </div>
+</div>
+
+<!-- ============ 图 2：数据模型 ============ -->
+<div class="figure" id="fig-2">
+  <h2>2. 数据模型 ER</h2>
+  <p class="desc">14 个核心实体 + 关系。三态输出（Conversation / Dashboard / Report）共享同一 User + Tenant + Citation 来源。</p>
+  <div class="mermaid">
+erDiagram
+  TENANT ||--o{ USER : has
+  TENANT ||--o{ DATASET : owns
+  TENANT ||--o{ DASHBOARD : owns
+  TENANT ||--o{ REPORT : owns
+
+  USER ||--o{ CONVERSATION : starts
+  USER ||--o{ DASHBOARD : creates
+  USER ||--o{ REPORT : generates
+
+  CONVERSATION ||--o{ MESSAGE : contains
+  MESSAGE ||--o{ CITATION : has
+  MESSAGE ||--o{ CHART : produces
+  MESSAGE ||--o{ TRACE_STEP : logs
+
+  DATASET ||--o{ COLUMN : has
+  DATASET ||--o{ CITATION : referenced_by
+  DATASET }o--|| CONNECTOR : via
+
+  DASHBOARD ||--o{ DASHBOARD_CARD : contains
+  DASHBOARD_CARD }o--|| MESSAGE : pinned_from
+  DASHBOARD ||--o{ SUBSCRIPTION : has
+
+  REPORT ||--o{ REPORT_SECTION : contains
+  REPORT }o--|| REPORT_TEMPLATE : uses
+
+  TENANT { uuid id PK string name string subscription_plan }
+  USER { uuid id PK uuid tenant_id FK string username string role string default_mode }
+  DATASET { uuid id PK string name string source_type string description json schema_meta string sensitivity }
+  COLUMN { uuid id PK uuid dataset_id FK string name string dtype string business_term bool is_pii }
+  CONVERSATION { uuid id PK uuid user_id FK string title string mode timestamp created_at }
+  MESSAGE { uuid id PK uuid conversation_id FK string role text content json answer_payload int latency_ms }
+  TRACE_STEP { uuid id PK uuid message_id FK int step_index string step_name string status json detail }
+  CITATION { uuid id PK uuid message_id FK uuid dataset_id FK json columns text sql json sample_rows }
+  CHART { uuid id PK uuid message_id FK string chart_type json plotly_spec }
+  DASHBOARD { uuid id PK uuid tenant_id FK uuid creator_id FK string title string share_token }
+  DASHBOARD_CARD { uuid id PK uuid dashboard_id FK uuid message_id FK int order_index text annotation }
+  SUBSCRIPTION { uuid id PK uuid dashboard_id FK string cron string channel string target bool enabled }
+  REPORT { uuid id PK uuid tenant_id FK uuid creator_id FK string title string format string status string file_path }
+  REPORT_SECTION { uuid id PK uuid report_id FK int order_index string section_type text content }
+  REPORT_TEMPLATE { uuid id PK string name json structure }
+  </div>
+</div>
+
+<!-- ============ 图 3：业务主流程 ============ -->
+<div class="figure" id="fig-3">
+  <h2>3. 业务主流程</h2>
+  <p class="desc">用户从登录到对话到沉淀（看板/报告）的全流程。Agent 失败时优雅降级到澄清。</p>
+  <div class="mermaid">
+flowchart TD
+  Start([用户进入系统]) --> Login{已登录?}
+  Login -- 否 --> Auth[SSO/账密/评委 token 登录]
+  Auth --> Mode
+  Login -- 是 --> Mode[根据角色加载默认模式<br/>商业/专家]
+  Mode --> Welcome[欢迎页：快捷模板/最近对话]
+  Welcome --> Choose{用户操作}
+
+  Choose -- 直接提问 --> Ask[输入问题]
+  Choose -- 拖入文件 --> Upload[文件上传 → 自动解析 schema]
+  Upload --> Ask
+  Choose -- 选模板 --> Template[选择月报/复盘模板]
+  Template --> Ask
+
+  Ask --> Agent[Agent 14 步推理流程]
+  Agent --> Render[渲染答案<br/>结论+图表+表格+追问]
+
+  Render --> Action{用户下一步}
+  Action -- 追问 --> Ask
+  Action -- 钉看板 --> PinBoard[加入当前看板]
+  Action -- 生成报告 --> GenReport[拆解子问题→生成多页报告]
+  Action -- 切换模式 --> Mode
+  Action -- 结束 --> End([对话结束/保存])
+
+  PinBoard --> EditDB[编辑看板<br/>排序/注释/分享]
+  EditDB --> ShareSub{分享/订阅}
+  ShareSub -- 分享 --> ShareLink[生成 URL]
+  ShareSub -- 订阅 --> SetCron[配置 cron+channel]
+
+  GenReport --> Export[导出 PDF/Word]
+
+  Agent -.异常.-> Err[失败处理：澄清/降级/转人工]
+  Err --> Render
+
+  style Agent fill:#e7f1ec,stroke:#15875e,stroke-width:2px
+  style Err fill:#fee
+  </div>
+</div>
+
+<!-- ============ 图 4：14 步状态机 ============ -->
+<div class="figure" id="fig-4">
+  <h2>4. Agent 14 步状态机</h2>
+  <p class="desc">5 阶段 14 状态。SQL 生成阶段最多 4 次重试，校验失败回退到第 6 步重新解析。</p>
+  <div class="mermaid">
+stateDiagram-v2
+  [*] --> 接收问题
+  接收问题 --> 加载能力
+  加载能力 --> GraphRAG检索
+  GraphRAG检索 --> 规划动作
+  规划动作 --> 选择能力
+  选择能力 --> 实例语义解析
+  实例语义解析 --> TTL推理
+  TTL推理 --> SQL尝试1
+  SQL尝试1 --> SQL尝试2 : 校验失败
+  SQL尝试2 --> SQL尝试3 : 校验失败
+  SQL尝试3 --> SQL尝试4 : 校验失败
+  SQL尝试4 --> 转澄清 : 全部失败
+  SQL尝试1 --> 执行SQL : 通过
+  SQL尝试2 --> 执行SQL : 通过
+  SQL尝试3 --> 执行SQL : 通过
+  SQL尝试4 --> 执行SQL : 通过
+  执行SQL --> Critic校验
+  Critic校验 --> 输出组装 : 合理
+  Critic校验 --> 实例语义解析 : 不合理
+  输出组装 --> [*] : 完成
+  转澄清 --> [*] : 反问用户
+
+  note right of GraphRAG检索 : top-k=5 业务社区
+  note right of TTL推理 : 业务术语 → DB 字段
+  note right of SQL尝试1 : 含静态校验：<br/>语法+字段+安全
+  note right of Critic校验 : 行数/空值/<br/>数值合理性
+  </div>
+</div>
+
+<!-- ============ 图 5：多模型路由 ============ -->
+<div class="figure" id="fig-5">
+  <h2>5. 多模型路由策略</h2>
+  <p class="desc">5 个国产模型按任务类型分流，节省 60% Token + 35% 延迟。失败自动 fallback chain。</p>
+  <div class="mermaid">
+flowchart LR
+  Q[用户问题 / 任务] --> Type{任务类型}
+  Type -- 路由/Critic/简单总结 --> Small[deepseek-v3.2<br/>小模型 · 快 · 省 80%]
+  Type -- SQL生成/主推理 --> Main[qwen3.6-plus<br/>主大模型 · 平衡]
+  Type -- 长报告生成 --> Long[kimi-k2.5<br/>200K 上下文]
+
+  Small --> Result[输出]
+  Main --> Result
+  Long --> Result
+
+  Small -.失败.-> Fb1[MiniMax-M2.5<br/>fallback 1]
+  Main -.失败.-> Fb1
+  Long -.失败.-> Fb1
+  Fb1 -.失败.-> Fb2[glm-5<br/>fallback 2]
+  Fb2 --> Result
+
+  style Main fill:#e7f1ec,stroke:#15875e
+  style Small fill:#fef3c7
+  style Long fill:#ece4fe
+  </div>
+</div>
+
+<!-- ============ 图 6：JOIN 策略 ============ -->
+<div class="figure" id="fig-6">
+  <h2>6. 跨数据集 JOIN 自动发现</h2>
+  <p class="desc">用户问跨域问题（"销售下滑跟员工流动率有关吗"），Agent 自动识别需要 JOIN 多张表。</p>
+  <div class="mermaid">
+flowchart TD
+  Q["Q1 华南为什么掉 12%<br/>跟员工流动率有关吗？"] --> Parse[语义解析]
+  Parse --> E1[实体提取：<br/>华南/Q1/销售/员工/流动率]
+  E1 --> Map[TTL 推理：<br/>销售→sales_orders<br/>员工→employee_analytics<br/>流动率→sales × employee]
+  Map --> Dec{需要 JOIN?}
+  Dec -- 是 --> Find[GraphRAG：<br/>查找 sales × employee 公共键]
+  Find --> Key[公共键：bu_id]
+  Key --> SQL["SQL 生成：<br/>WITH sales_by_bu AS (...)<br/>WITH emp_turnover AS (...)<br/>JOIN ON bu_id"]
+  SQL --> Run[DuckDB 执行]
+  Run --> Result[三表交叉印证<br/>BU-3 是根因]
+
+  style Find fill:#e7f1ec,stroke:#15875e
+  style SQL fill:#fff7e0
+  style Result fill:#ece4fe
+  </div>
+</div>
+
+<!-- ============ 图 7：错误处理 ============ -->
+<div class="figure" id="fig-7">
+  <h2>7. 错误处理与降级</h2>
+  <p class="desc">3 层降级：主模型失败→fallback 模型→mock 模式。所有 5xx 错误带 Request ID 便于追踪。</p>
+  <div class="mermaid">
+flowchart TD
+  Req[请求进入] --> M1{主模型可用?}
+  M1 -- 是 --> Main[主模型推理]
+  Main --> Ok1{成功?}
+  Ok1 -- 是 --> Return[返回结果]
+  Ok1 -- 否 --> M2
+
+  M1 -- 否 --> M2{fallback 可用?}
+  M2 -- 是 --> Fb[fallback 模型推理]
+  Fb --> Ok2{成功?}
+  Ok2 -- 是 --> Return
+  Ok2 -- 否 --> Mock
+
+  M2 -- 否 --> Mock{Mock 兜底}
+  Mock --> MockOut[返回 Mock 数据<br/>X-Source: mock]
+  MockOut --> Return
+
+  Return -.带.-> Tag[X-Request-ID 追踪]
+  Return -.失败时.-> Sentry[Loguru 错误日志<br/>含 trace 全链路]
+
+  style Mock fill:#fef3c7
+  style Sentry fill:#fee
+  </div>
+</div>
+
+<!-- ============ 图 8：部署拓扑 ============ -->
+<div class="figure" id="fig-8">
+  <h2>8. 内网部署拓扑</h2>
+  <p class="desc">Docker Compose 单机起步：nginx 前端 + uvicorn 后端 + Redis + SQLite。生产化时换 K8s + PostgreSQL。</p>
+  <div class="mermaid">
+flowchart LR
+  subgraph 评委浏览器
+    Browser[Chrome / Edge]
+  end
+
+  subgraph 亚信内网 [亚信云内网 / VPN]
+    LB[Nginx :80]
+    LB --> Frontend[前端静态<br/>React + Babel<br/>port 8080]
+    LB --> API[后端 FastAPI<br/>uvicorn 4 worker<br/>port 8000]
+    API --> Cache[(Redis<br/>session)]
+    API --> DB[(SQLite tt.db<br/>看板/报告)]
+    API --> Files[(本地文件<br/>schemas.json<br/>graphrag_index.json)]
+    API --> LLM[亚信 AI 网关<br/>aigw.asiainfo.com<br/>5 国产模型]
+  end
+
+  Browser -- HTTPS --> LB
+
+  style LLM fill:#ece4fe
+  style API fill:#e7f1ec
+  </div>
+</div>
+
+</div>
+
+<script>
+mermaid.initialize({ startOnLoad: true, theme: "default", flowchart: { curve: "basis" } });
+</script>
+
+</body>
+</html>

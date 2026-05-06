@@ -1,0 +1,25 @@
+target-version = "py312"
+line-length = 120
+
+[lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # isort
+    "W",    # pycodestyle warnings
+    "B",    # bugbear
+    "UP",   # pyupgrade
+]
+ignore = [
+    "E501",  # line too long（loguru 长字符串等场景）
+    "B008",  # fastapi Depends() 等需要默认调用
+    "UP007", # py3.10+ Optional/Union 旧写法兼容
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["F841"]  # 测试里允许 unused
+"tools/*" = ["E402"]  # tools 脚本前置 dotenv 后导入
+
+[format]
+quote-style = "double"
+indent-style = "space"

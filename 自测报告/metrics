@@ -1,0 +1,9 @@
+{
+  "total": 10,
+  "task_completion_rate": 0.9,
+  "answer_accuracy": 0.828,
+  "chart_generation_rate": 0.9,
+  "multi_turn_consistency": 0.93,
+  "data_provenance_accuracy": 0.95,
+  "avg_latency_seconds": 0.53
+}
