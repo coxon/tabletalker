@@ -61,10 +61,25 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _public_base_url() -> str:
-    """The absolute origin for `report_html_url`. Defaults to localhost
-    so dev runs without `.env` still produce a valid (if local) URL."""
+def _public_base_url(override: str | None = None) -> str:
+    """The absolute origin for `report_html_url`.
 
+    Preference order:
+      1. Explicit `override` from the route layer — typically
+         `str(request.base_url)`. With `uvicorn --proxy-headers`, this
+         already honours `X-Forwarded-Proto` / `X-Forwarded-Host`, so
+         a deploy behind a TLS-terminating reverse proxy returns
+         `https://demo.example.com/` rather than `http://localhost:8000`.
+      2. `APP_PUBLIC_URL` env (set in `.env` and required by `start.sh`).
+      3. `http://localhost:8000` as the dev-mode last resort, so library
+         callers and tests still produce a valid (if local) URL.
+
+    The trailing slash is stripped so the caller can safely append
+    `/reports/{id}.html` without doubling separators.
+    """
+
+    if override:
+        return override.rstrip("/")
     return os.environ.get("APP_PUBLIC_URL", "http://localhost:8000").rstrip("/")
 
 
@@ -110,6 +125,10 @@ class AnalyzeRequest:
       - `is_followup`: treats refusal-detection differently — follow-ups
         of refused parents always refuse without re-running the trap
         keyword check, since the prelude already encodes that.
+      - `base_url`: route-layer override for the report URL origin.
+        The HTTP routes pass `str(request.base_url)` so a proxied
+        deploy returns `https://demo.example.com/...` rather than the
+        env's `APP_PUBLIC_URL` fallback. None for library/CLI callers.
     """
 
     workspace: Path
@@ -119,6 +138,7 @@ class AnalyzeRequest:
     prelude: str | None = None
     request_id: str | None = None
     is_followup: bool = False
+    base_url: str | None = None
 
 
 class AnalyzeFailure(Exception):
@@ -146,7 +166,7 @@ async def handle_analyze(
     """Run the full pipeline and return a contract-shape response."""
 
     request_id = request.request_id or _new_request_id()
-    report_url = f"{_public_base_url()}/reports/{request_id}.html"
+    report_url = f"{_public_base_url(request.base_url)}/reports/{request_id}.html"
 
     # 1. Profile
     try:
@@ -512,7 +532,7 @@ def make_followup_id(parent_id: str, turn_index: int) -> str:
 
 
 def build_refusal_carry_through(
-    *, request_id: str, parent_summary: str
+    *, request_id: str, parent_summary: str, base_url: str | None = None
 ) -> AnalyzeResponse:
     """Echo a parent refusal into a follow-up response.
 
@@ -521,6 +541,11 @@ def build_refusal_carry_through(
     "we couldn't analyze this" to a different narrative within the same
     session. We re-use the parent's `summary` directly and re-render the
     chart-less refusal HTML keyed under the follow-up's id.
+
+    `base_url` mirrors `AnalyzeRequest.base_url`: routes pass
+    `str(request.base_url)` so the carry-through URL respects forwarded
+    proxy headers; library callers leave it None and the env fallback
+    kicks in.
     """
 
     rendered = render_report(
@@ -535,7 +560,7 @@ def build_refusal_carry_through(
     REPORT_STORE.put(request_id, rendered.html)
     return AnalyzeResponse(
         id=request_id,
-        report_html_url=f"{_public_base_url()}/reports/{request_id}.html",
+        report_html_url=f"{_public_base_url(base_url)}/reports/{request_id}.html",
         summary=parent_summary,
         findings=[],
         charts=rendered.charts,

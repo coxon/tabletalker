@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.analyze.handler import (
@@ -67,13 +67,18 @@ class FollowUpRequest(BaseModel):
 
 
 @router.post("/follow-up", response_model=AnalyzeResponse)
-async def follow_up(body: FollowUpRequest, response: Response) -> AnalyzeResponse:
+async def follow_up(
+    body: FollowUpRequest, request: Request, response: Response
+) -> AnalyzeResponse:
     """Run a follow-up analysis against an existing session.
 
     Like `/v1/analyze`, attaches an `X-Stage-Timings` header with
     per-stage durations. Refusal carry-through skips the LLM stages
     so the header reports near-zero `plan_llm` / `finalize_llm` —
     that's the truthful representation of the work done.
+
+    `report_html_url` resolution mirrors `/v1/analyze`: the request's
+    own origin (proxy-aware) wins over `APP_PUBLIC_URL`.
     """
 
     clean_question = body.question.strip()
@@ -118,6 +123,7 @@ async def follow_up(body: FollowUpRequest, response: Response) -> AnalyzeRespons
                 carry_response = build_refusal_carry_through(
                     request_id=request_id,
                     parent_summary=session.parent_summary,
+                    base_url=str(request.base_url),
                 )
             response.headers["X-Stage-Timings"] = serialize_header(timer)
             _finalise_turn(
@@ -150,7 +156,7 @@ async def follow_up(body: FollowUpRequest, response: Response) -> AnalyzeRespons
 
     chat_client = HttpChatClient(config)
     prelude = render_followup_system_prompt(session, clean_question)
-    request = AnalyzeRequest(
+    analyze_request = AnalyzeRequest(
         workspace=session.workspace_dir,
         filename=session.filename,
         dataset=session.dataset,
@@ -158,10 +164,13 @@ async def follow_up(body: FollowUpRequest, response: Response) -> AnalyzeRespons
         prelude=prelude,
         request_id=request_id,
         is_followup=True,
+        base_url=str(request.base_url),
     )
     try:
         with bind_stage_timer() as timer:
-            analyze_response = await handle_analyze(request, chat_client=chat_client)
+            analyze_response = await handle_analyze(
+                analyze_request, chat_client=chat_client
+            )
         response.headers["X-Stage-Timings"] = serialize_header(timer)
     except AnalyzeFailure as exc:
         SESSION_STORE.discard_turn(

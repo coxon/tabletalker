@@ -27,7 +27,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, Request, Response, UploadFile, status
 
 from app.analyze.handler import (
     AnalyzeFailure,
@@ -51,6 +51,7 @@ router = APIRouter(prefix="/v1", tags=["analyze"])
 
 @router.post("/analyze", response_model=AnalyzeResponse)
 async def analyze(
+    request: Request,
     response: Response,
     file: UploadFile = File(...),  # noqa: B008 — FastAPI DI idiom
     question: str = Form(...),
@@ -61,6 +62,11 @@ async def analyze(
     The response also carries an `X-Stage-Timings` header with per-stage
     durations from the pipeline (see `app.analyze.stages`). The header is
     informational — the JSON contract shape is unchanged.
+
+    `report_html_url` resolution prefers the request's own origin (so a
+    deploy behind a TLS-terminating proxy with `--proxy-headers` returns
+    `https://demo.example.com/reports/<id>.html`) and falls back to
+    `APP_PUBLIC_URL` from `.env` when the request URL isn't usable.
     """
 
     # Normalise once: surrounding whitespace shouldn't change the request
@@ -88,7 +94,7 @@ async def analyze(
 
         chat_client = HttpChatClient(config)
         effective_dataset = clean_dataset or Path(filename).stem
-        request = AnalyzeRequest(
+        analyze_request = AnalyzeRequest(
             workspace=workspace,
             filename=filename,
             # `dataset` defaults to the file's stem so casual uploads
@@ -96,10 +102,13 @@ async def analyze(
             # Named datasets pass `dataset=...` in the form.
             dataset=effective_dataset,
             question=clean_question,
+            base_url=str(request.base_url),
         )
         try:
             with bind_stage_timer() as timer:
-                analyze_response = await handle_analyze(request, chat_client=chat_client)
+                analyze_response = await handle_analyze(
+                    analyze_request, chat_client=chat_client
+                )
             response.headers["X-Stage-Timings"] = serialize_header(timer)
         except AnalyzeFailure as exc:
             raise HTTPException(exc.status_code, str(exc)) from exc

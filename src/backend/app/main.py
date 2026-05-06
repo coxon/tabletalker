@@ -12,6 +12,7 @@ mounted from `app.api.*`:
 """
 
 from fastapi import FastAPI
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app import __version__
 from app.api.analyze import router as analyze_router
@@ -20,6 +21,18 @@ from app.api.reports import router as reports_router
 from app.api.spreadsheet import router as spreadsheet_router
 
 app = FastAPI(title="TableTalker Backend", version=__version__)
+# Trust `X-Forwarded-Proto` / `X-Forwarded-Host` / `X-Forwarded-For`
+# from the reverse proxy in front of uvicorn. We mount the middleware
+# at the app level (rather than relying solely on `uvicorn --proxy-headers`)
+# so behaviour is consistent across launchers (uvicorn CLI, gunicorn,
+# TestClient) and so tests can exercise the proxy path. The handler
+# uses `request.base_url` to construct `report_html_url`; if proxy
+# headers aren't honoured, deploys behind nginx/Caddy emit URLs
+# pointing at `localhost:8000` even when accessed via `https://...`.
+# `*` is the standard "trust whatever proxy is in front" setting; it's
+# safe here because the binding (`0.0.0.0:8000`) is meant to sit behind
+# trusted infra during the submission window.
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 app.include_router(spreadsheet_router)
 app.include_router(analyze_router)
 app.include_router(follow_up_router)

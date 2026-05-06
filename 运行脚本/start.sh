@@ -49,7 +49,16 @@ echo "==> Frontend: installing deps"
 ( cd src/frontend && pnpm install --frozen-lockfile )
 
 echo "==> Launching backend on :8000 and frontend on :3000"
-( cd src/backend && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 ) &
+# `--proxy-headers` lets uvicorn honour `X-Forwarded-Proto` /
+# `X-Forwarded-Host` from a TLS-terminating reverse proxy. The backend
+# uses the request URL to build absolute `report_html_url`s; without
+# this, deploys behind nginx/Caddy/Cloudfront would emit URLs pointing
+# at `http://localhost:8000` even when accessed via `https://demo.example.com`.
+# `--forwarded-allow-ips '*'` is fine because we only run behind trusted
+# infra in this submission window; tighten in production.
+( cd src/backend && uv run uvicorn app.main:app \
+    --host 0.0.0.0 --port 8000 \
+    --proxy-headers --forwarded-allow-ips '*' ) &
 BACK_PID=$!
 ( cd src/frontend && pnpm dev --port 3000 ) &
 FRONT_PID=$!
