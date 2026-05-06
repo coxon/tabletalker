@@ -13,6 +13,7 @@ Config is read from env via `LLMConfig.from_env()`:
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -25,20 +26,37 @@ class LLMConfig:
     base_url: str
     api_key: str
     model: str
-    timeout_s: float = 30.0
+    # Default 120 s. Reasoning-heavy models (qwen3.x-plus) emit hundreds
+    # of tokens of `reasoning_content` even on small prompts; the planner
+    # + finalize calls regularly clear 60 s end-to-end. Override via the
+    # LLM_TIMEOUT_S env var if your gateway is faster or slower.
+    timeout_s: float = 120.0
 
     @classmethod
     def from_env(cls) -> LLMConfig:
         try:
+            timeout_s = float(os.environ.get("LLM_TIMEOUT_S", "120"))
+            # Reject 0, negatives, NaN, +/-inf — these would fail later on the
+            # request path with an opaque httpx error; failing here keeps the
+            # blast radius at config-load time.
+            if not math.isfinite(timeout_s) or timeout_s <= 0:
+                raise ValueError(
+                    "LLM_TIMEOUT_S must be a positive finite number"
+                )
             return cls(
                 base_url=os.environ["LLM_BASE_URL"].rstrip("/"),
                 api_key=os.environ["LLM_API_KEY"],
                 model=os.environ["LLM_MODEL"],
+                timeout_s=timeout_s,
             )
         except KeyError as exc:
             raise LLMConfigError(
                 f"missing required env var {exc.args[0]!r} "
                 "(see .env.example: LLM_BASE_URL / LLM_API_KEY / LLM_MODEL)"
+            ) from exc
+        except ValueError as exc:
+            raise LLMConfigError(
+                f"LLM_TIMEOUT_S must be a positive finite number: {exc}"
             ) from exc
 
 
@@ -98,7 +116,12 @@ class HttpChatClient:
                     json=payload,
                 )
         except httpx.HTTPError as exc:
-            raise LLMError(f"transport error: {exc}") from exc
+            # `str(exc)` is empty for some httpx exceptions (e.g.
+            # RemoteProtocolError on a clean connection drop) — without
+            # the type label we lose all signal at the 502 boundary.
+            raise LLMError(
+                f"transport error ({type(exc).__name__}): {exc or '<no message>'}"
+            ) from exc
 
         if response.status_code != 200:
             raise LLMError(

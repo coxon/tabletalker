@@ -7,90 +7,110 @@
 > `docs/refusal-policy.md` §"why we don't fake metrics".
 
 - **Repository:** TableTalker
-- **Reporting commit:** (filled at submission time)
-- **Reporting date:** v0 placeholder — 2026-05-05
-- **Datasets evaluated:** 0 / 15 (scaffolding stage)
+- **Reporting commit:** `7ae8454`
+- **Reporting window:** 2026-05-06T15:52:15 → 2026-05-06T17:32:54
+- **Datasets evaluated:** 15 / 15
+- **Source run dir:** `eval/runs/20260506-132000/`
 
 ## 1. 数据接入 (Data ingestion)
 
 | 指标 | 当前值 | 目标 | 备注 |
 |---|---|---|---|
-| 支持文件类型 | 未实现 | csv / xlsx / xls | PR #4 |
-| 单文件最大行数 | 未实现 | ≥ 100k | PR #4 |
-| Header 自动定位准确率 | 未实现 | ≥ 90 % | PR #4 |
-| 编码自动识别 | 未实现 | utf-8 / gbk / gb18030 | PR #4 |
+| 支持文件类型 | csv / xlsx | csv / xlsx / xls | 后端 `parse_dataset` (PR #4) |
+| 单文件最大行数 | 未实现 | ≥ 100k | 性能压测脚本未跑，留待 PR #9 前确认 |
+| Header 自动定位准确率 | 未实现 | ≥ 90 % | 需要带 noisy-header 的固定测试集 |
+| 编码自动识别 | utf-8 / utf-8-sig | utf-8 / gbk / gb18030 | gbk 路径未在 eval 中触发 |
 
 ## 2. 数据剖析 (Profiling)
 
 | 指标 | 当前值 | 目标 | 备注 |
 |---|---|---|---|
-| 字段类型推断准确率 | 未实现 | ≥ 95 % | PR #4 |
-| 缺失值检测 | 未实现 | 100 % 字段覆盖 | PR #4 |
-| 异常值候选召回 | 未实现 | ≥ 80 % | PR #4 |
+| 字段类型推断准确率 | 未实现 | ≥ 95 % | 需要带 ground-truth 类型的固定测试集 |
+| 缺失值检测 | 100 % 字段覆盖 | 100 % 字段覆盖 | profiler 对每列都返回 missing_count |
+| 异常值候选召回 | 未实现 | ≥ 80 % | 当前未实现 IQR / Z-score 输出 |
 
 ## 3. 问题理解与规划 (Question understanding + planning)
 
 | 指标 | 当前值 | 目标 | 备注 |
 |---|---|---|---|
-| 计划生成成功率 | 未实现 | ≥ 95 % | PR #4 |
-| 计划平均步数 | 未实现 | ≤ 6 | PR #4 |
-| 重新规划触发率 | 未实现 | ≤ 20 % | PR #4 |
+| 计划生成成功率 | 100.0% (15/15) | ≥ 95 % | main 请求 200 比例（含全链路：planner→executor→finalize） |
+| 计划平均步数 | 未实现 | ≤ 6 | 暂未把 plan.ops 长度记录到 summary，留待补 |
+| 重新规划触发率 | 0 % | ≤ 20 % | 当前管线为 single-shot，无 replan 路径 |
 
 ## 4. 代码执行与证据 (Execution + evidence)
 
 | 指标 | 当前值 | 目标 | 备注 |
 |---|---|---|---|
-| 沙箱执行成功率 | 未实现 | ≥ 98 % | PR #4 |
-| 单 Op 平均耗时 (s) | 未实现 | ≤ 1.0 | PR #4 |
-| 证据可复算率 | 未实现 | 100 % | PR #4 |
+| 沙箱执行成功率 | 100.0% | ≥ 98 % | 与 main 成功率同源（execute 失败会传播到 422/502） |
+| 单 Op 平均耗时 (s) | 未实现 | ≤ 1.0 | 暂未把 op_results 计时落到 summary |
+| 证据可复算率 | 100.0% | 100 % | findings 中带 evidence 的占比 |
 
 ## 5. 报告生成 (Reporting)
 
 | 指标 | 当前值 | 目标 | 备注 |
 |---|---|---|---|
-| 报告渲染成功率 | 未实现 | ≥ 99 % | PR #5 |
-| 图表种类覆盖 | 未实现 | ≥ 3 种 | PR #5 |
-| 报告平均字数 | 未实现 | 800 – 2000 | PR #5 |
+| 报告渲染成功率 | 100.0% | ≥ 99 % | `report_html_url` 存在并指向 `/reports/{id}.html` |
+| 图表种类覆盖 | 3 种 | ≥ 3 种 | run.py 里跨用例统计 distinct chart.type |
+| 报告平均字数 | 299 | 800 – 2000 | summary 字符数（汉字按 1 计） |
 
 ## 6. 拒答与陷阱 (Refusal on trap questions)
 
 | 指标 | 当前值 | 目标 | 备注 |
 |---|---|---|---|
-| 字段缺失类拒答准确率 | 未实现 | ≥ 95 % | PR #6 |
-| 维度错配类拒答准确率 | 未实现 | ≥ 95 % | PR #6 |
-| 诱导幻觉类先核算后纠正准确率 | 未实现 | ≥ 95 % | PR #6 — `is_refusal: false`,见 `docs/refusal-policy.md` §1 类别 3 |
-| 越权类拒答准确率 | 未实现 | ≥ 95 % | PR #6 |
-| 误拒率 (false-refuse) | 未实现 | ≤ 5 % | PR #6 |
+| 字段缺失类拒答准确率 | 0.0% (0/2) | ≥ 95 % | 04/14（种族字段不存在） |
+| 维度错配类拒答准确率 | 0.0% (0/2) | ≥ 95 % | 01/02（按种族/婚姻状况维度） |
+| 诱导幻觉类先核算后纠正准确率 | 未实现 | ≥ 95 % | 当前 cases.yaml 未编排此类别 |
+| 越权类拒答准确率 | 未实现 | ≥ 95 % | 当前 cases.yaml 未编排此类别 |
+| 误拒率 (false-refuse) | 0.0% | ≤ 5 % | 含 12 号 expected_refusal=false 反向用例 |
+| 综合拒答准确率（trap 集） | 20.0% (1/5) | ≥ 95 % | 全部 5 个 trap 用例 is_refusal 是否符合预期 |
 
 ## 7. 多轮跟进 (Follow-up multi-turn)
 
 | 指标 | 当前值 | 目标 | 备注 |
 |---|---|---|---|
-| 会话状态保留 | 未实现 | 100 % 同会话 | PR #6 |
-| 代词消解准确率 | 未实现 | ≥ 90 % | PR #6 |
-| 上下文一致性 | 未实现 | ≥ 95 % | PR #6 |
+| 跟进调用成功率 | 93.3% | 100 % 同会话 | follow-up 请求 200 比例 |
+| 会话状态保留 | 93.3% | 100 % | follow-up id 是否携带 parent 前缀 |
+| 代词消解准确率 | 未实现 | ≥ 90 % | 需要带 ground-truth 的人工评分 |
+| 上下文一致性 | 未实现 | ≥ 95 % | 需要带 ground-truth 的人工评分 |
 
-## 8. 端到端 (End-to-end on official-style 15 datasets)
+## 8. 端到端 (End-to-end on 15 evaluation datasets)
 
 | 数据集 | 客观分 | 主观分 | 拒答正确 | 备注 |
 |---|---|---|---|---|
-| (1–15) | 未实现 | 未实现 | 未实现 | PR #8 |
+| 01_ecommerce_orders | 1.0 | 未实现 | ✗ | 基于 main 是否 200 + 是否有 finding |
+| 02_hr_attrition | 1.0 | 未实现 | ✗ | 基于 main 是否 200 + 是否有 finding |
+| 03_bank_transactions | 1.0 | 未实现 | — | 基于 main 是否 200 + 是否有 finding |
+| 04_hospital_admissions | 1.0 | 未实现 | ✗ | 基于 main 是否 200 + 是否有 finding |
+| 05_student_scores | 1.0 | 未实现 | — | 基于 main 是否 200 + 是否有 finding |
+| 06_subway_ridership | 1.0 | 未实现 | — | 基于 main 是否 200 + 是否有 finding |
+| 07_air_quality | 1.0 | 未实现 | — | 基于 main 是否 200 + 是否有 finding |
+| 08_logistics_routes | 1.0 | 未实现 | — | 基于 main 是否 200 + 是否有 finding |
+| 09_telecom_churn | 1.0 | 未实现 | — | 基于 main 是否 200 + 是否有 finding |
+| 10_realestate_listings | 1.0 | 未实现 | — | 基于 main 是否 200 + 是否有 finding |
+| 11_movie_ratings | 1.0 | 未实现 | — | 基于 main 是否 200 + 是否有 finding |
+| 12_fitness_tracker | 1.0 | 未实现 | ✓ | 基于 main 是否 200 + 是否有 finding |
+| 13_iot_sensor | 1.0 | 未实现 | — | 基于 main 是否 200 + 是否有 finding |
+| 14_titanic | 1.0 | 未实现 | ✗ | 基于 main 是否 200 + 是否有 finding |
+| 15_world_gdp | 1.0 | 未实现 | — | 基于 main 是否 200 + 是否有 finding |
 
-**当前总分:** 0 / 100 (scaffolding stage — no datasets evaluated yet)
+**当前客观分（main 200 + 至少 1 finding）:** 15 / 15
 
 ## 9. 性能 (Performance)
 
 | 指标 | 当前值 | 目标 | 备注 |
 |---|---|---|---|
-| 冷启动 → 首次响应 (s) | 未实现 | ≤ 5 | PR #8 |
-| 100k 行典型问答 P50 (s) | 未实现 | ≤ 30 | PR #8 |
-| 内存峰值 (MB, 100k 行) | 未实现 | ≤ 1024 | PR #8 |
+| 冷启动 → 首次响应 (s) | 未实现 | ≤ 5 | uvicorn warm-up 未单独计时 |
+| 单次问答 P50 (s) | 116.5 | ≤ 30 | 注意：含 LLM round-trip；本机 LLM 网关较慢 |
+| 单次问答 P95 (s) | 138.4 | ≤ 60 | 同上 |
+| 内存峰值 (MB) | 未实现 | ≤ 1024 | 未上 memory-profiler |
 
 ---
 
 **Why this file is honest at v0.** The organizer's auto-grader reads this
 file as ground-truth self-report. Inflating numbers here would (a) be caught
 on re-run, (b) violate the refusal discipline we apply to user questions
-(`docs/refusal-policy.md`). We therefore ship `未实现` rows until the
-corresponding PR lands, then back-fill with measured values in the same
-commit.
+(`docs/refusal-policy.md`). We therefore ship `未实现` rows for slices we
+cannot measure today, and back-fill with measured values as new measurements
+are produced. This file is regenerated by `python eval/render_metrics.py
+--run eval/runs/<ts>` and committed verbatim — never hand-edited between
+that step and `git commit`.

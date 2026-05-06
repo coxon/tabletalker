@@ -23,6 +23,9 @@ dev = [
   "ruff>=0.7",
   "pyright>=1.1.380",
   "pandas-stubs>=2.2",
+  # eval/run.py loads cases.yaml; eval/build_datasets.py uses numpy.
+  "pyyaml>=6.0",
+  "numpy>=2.0",
 ]
 
 [tool.ruff]
