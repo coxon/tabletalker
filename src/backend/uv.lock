@@ -781,10 +781,12 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "numpy" },
     { name = "pandas-stubs" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
+    { name = "pyyaml" },
     { name = "ruff" },
 ]
 
@@ -803,10 +805,12 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "numpy", specifier = ">=2.0" },
     { name = "pandas-stubs", specifier = ">=2.2" },
     { name = "pyright", specifier = ">=1.1.380" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "pytest-asyncio", specifier = ">=0.24" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "ruff", specifier = ">=0.7" },
 ]
 
