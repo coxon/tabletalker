@@ -16,6 +16,7 @@ import {
   useState,
   type ChangeEvent,
   type DragEvent,
+  type KeyboardEvent,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { FileSpreadsheet, FilePlus2 } from "lucide-react";
@@ -45,24 +46,28 @@ export function Dropzone({ file, onFile, disabled }: DropzoneProps) {
   const enterCount = useRef(0);
 
   useEffect(() => {
-    // When the dropzone goes disabled mid-drag (e.g. analysis kicks
-    // off while the user still has a drag in flight), tear down any
-    // visible drag UI so the screen doesn't get stuck in the overlay
-    // state with no way to dismiss it.
+    // Always register listeners (even when disabled) so a file dropped
+    // during analysis is still swallowed — without this, missed file
+    // drops would navigate the browser to the file. The handlers
+    // themselves gate any UI state mutations on `disabled`.
     if (disabled) {
+      // Tear down any visible drag UI when the dropzone goes disabled
+      // mid-drag (e.g. analysis kicks off while the user still has a
+      // drag in flight).
       enterCount.current = 0;
       setDraggingPage(false);
       setDragOverDropzone(false);
-      return;
     }
     const onEnter = (event: globalThis.DragEvent) => {
       // Only react to file drags, never to text/element drags.
       if (!event.dataTransfer?.types.includes("Files")) return;
+      if (disabled) return;
       enterCount.current += 1;
       setDraggingPage(true);
     };
     const onLeave = (event: globalThis.DragEvent) => {
       if (!event.dataTransfer?.types.includes("Files")) return;
+      if (disabled) return;
       enterCount.current = Math.max(0, enterCount.current - 1);
       if (enterCount.current === 0) setDraggingPage(false);
     };
@@ -79,7 +84,9 @@ export function Dropzone({ file, onFile, disabled }: DropzoneProps) {
       setDragOverDropzone(false);
     };
     const onOver = (event: globalThis.DragEvent) => {
-      // Required to make the page a valid drop target.
+      // Required to make the page a valid drop target for files. We
+      // preventDefault even when disabled — otherwise a stray file
+      // drop slips past our `drop` listener and navigates the browser.
       if (event.dataTransfer?.types.includes("Files")) event.preventDefault();
     };
     window.addEventListener("dragenter", onEnter);
@@ -126,6 +133,17 @@ export function Dropzone({ file, onFile, disabled }: DropzoneProps) {
     event.target.value = "";
   };
 
+  const handleLabelKeyDown = (event: KeyboardEvent<HTMLLabelElement>) => {
+    if (disabled) return;
+    // Enter/Space on the visible rectangle opens the file picker.
+    // Without this the focus ring lands on the sr-only input which has
+    // no visible affordance — keyboard users get a black hole.
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      inputRef.current?.click();
+    }
+  };
+
   return (
     <>
       {/* Page-wide overlay — only renders while a file drag is active.
@@ -157,6 +175,14 @@ export function Dropzone({ file, onFile, disabled }: DropzoneProps) {
 
       <label
         htmlFor="dropzone-input"
+        // Make the visible rectangle the focus target so the focus ring
+        // lands somewhere users can see; the underlying file input is
+        // sr-only and has no affordance of its own.
+        role="button"
+        tabIndex={disabled ? -1 : 0}
+        aria-disabled={disabled || undefined}
+        aria-label={file ? `当前文件 ${file.name}，按 Enter 替换` : "选择 .csv 或 .xlsx 文件"}
+        onKeyDown={handleLabelKeyDown}
         // The dropzone rectangle is its own drop target so dropping
         // *into* it works even when the page-overlay isn't visible
         // (e.g. user toggled accept then re-dropped).
@@ -165,7 +191,7 @@ export function Dropzone({ file, onFile, disabled }: DropzoneProps) {
         onDragOver={disabled ? undefined : (event) => event.preventDefault()}
         onDrop={disabled ? undefined : handleZoneDrop}
         className={[
-          "group relative flex h-full min-h-[220px] flex-col items-center justify-center gap-2 rounded-[--radius-md] border border-dashed px-6 py-8 text-center transition",
+          "group relative flex h-full min-h-[220px] flex-col items-center justify-center gap-2 rounded-[--radius-md] border border-dashed px-6 py-8 text-center transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[--color-accent] focus-visible:ring-offset-2 focus-visible:ring-offset-[--color-bg]",
           dragOverDropzone
             ? "border-[--color-accent] bg-[--color-accent-soft]"
             : "border-[--color-border-strong] bg-[--color-bg-elev] hover:border-[--color-fg-faint]",
@@ -179,6 +205,11 @@ export function Dropzone({ file, onFile, disabled }: DropzoneProps) {
           accept={ACCEPT}
           onChange={handlePicked}
           disabled={disabled}
+          // Take the underlying input out of tab order — the wrapping
+          // label is the visible focus target. Otherwise keyboard
+          // users land on an invisible control.
+          tabIndex={-1}
+          aria-hidden
           className="sr-only"
         />
         {file ? (
