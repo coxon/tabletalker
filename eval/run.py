@@ -176,7 +176,16 @@ async def run_case(client: httpx.AsyncClient, case: dict) -> CaseResult:
     trap: TurnResult | None = None
     expected_refusal: bool | None = None
     if "trap" in case:
-        expected_refusal = bool(case["trap"]["expected_refusal"])
+        # Reject non-bool YAML values (e.g. the literal string "false",
+        # which `bool(...)` would silently coerce to True). The whole
+        # trap-scoring path lives or dies on this flag — better to
+        # crash the run than score the wrong direction.
+        raw = case["trap"].get("expected_refusal")
+        if not isinstance(raw, bool):
+            raise ValueError(
+                f"{case_id}.trap.expected_refusal must be a boolean, got: {raw!r}"
+            )
+        expected_refusal = raw
         print(f"  · {case_id} · trap (expect_refuse={expected_refusal})", flush=True)
         trap = await _post_analyze(client, dataset_path, case["trap"]["question"])
 
@@ -254,6 +263,14 @@ def compute_metrics(results: Iterable[CaseResult]) -> dict:
                 actual = None
             if actual is not None and actual == r.trap_expected_refusal:
                 trap_correct += 1
+            # `expected_refusal: false` traps are part of the false-
+            # refuse measurement: a refusal there is precisely what
+            # the metric is designed to catch. Skipping them would
+            # inflate false-refuse correctness.
+            if r.trap_expected_refusal is False and actual is not None:
+                false_refuse_total += 1
+                if actual is True:
+                    false_refuse_count += 1
         if r.main.ok:
             false_refuse_total += 1
             if (r.main.body or {}).get("is_refusal") is True:
@@ -291,6 +308,7 @@ def compute_metrics(results: Iterable[CaseResult]) -> dict:
 
     return {
         "datasets_total": main_total,
+        "main_success_count": len(main_oks),
         "main_success_rate": plan_success_rate,
         "p50_latency_s": p50,
         "p95_latency_s": p95,
@@ -298,8 +316,11 @@ def compute_metrics(results: Iterable[CaseResult]) -> dict:
         "distinct_chart_types": distinct_chart_types,
         "avg_summary_len_chars": avg_summary_len,
         "refusal_accuracy_on_traps": refusal_accuracy,
+        "refusal_correct_count": trap_correct,
         "trap_cases_total": trap_total,
         "false_refuse_rate": false_refuse_rate,
+        "false_refuse_count": false_refuse_count,
+        "false_refuse_total": false_refuse_total,
         "followup_success_rate": followup_success,
         "session_carry_rate": session_carry,
         "report_render_rate": report_render_rate,
@@ -425,7 +446,12 @@ def _split_resume(
                 continue
         if "trap" in case:
             trap = data.get("trap")
-            if not trap or trap.get("status_code") not in (200, 422):
+            # Only 200 counts as a successful trap turn — that's the
+            # contract shape we score against. A 422 means the analyze
+            # endpoint rejected the upload entirely; we'd never be
+            # able to read `is_refusal` off the body, so it has to be
+            # re-run.
+            if not trap or trap.get("status_code") != 200:
                 redo.append(case)
                 continue
         keep.append(_dict_to_case_result(data))
