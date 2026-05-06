@@ -280,7 +280,9 @@ AST 解析器（仅允许列引用、字面量、`+ - * / == != < <= > >= and or
 
 性能埋点：每次 `/v1/analyze` 响应都带 `X-Stage-Timings` 头，把耗时拆到
 `profile / preview_plan_req / plan_llm / execute / evidence /
-finalize_llm / render` 七段。以下是 PR #8 自测（15 个数据集，亚信 LLM
+finalize_llm / render` 七段；`execute` 阶段进一步以 `ops: [{kind, out,
+ms}, ...]` 形式给出每个算子的单独耗时（同源同请求，便于「在 8 个算子的复杂
+计划里到底是哪一步慢」这种诊断）。以下是 PR #8 自测（15 个数据集，亚信 LLM
 网关 `qwen3.6-plus`）实测：
 
 | 阶段 | 占比 | 备注 |

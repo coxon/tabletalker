@@ -344,6 +344,12 @@ def compute_metrics(results: Iterable[CaseResult]) -> dict:
     # actually measured.
     stage_p50, stage_p95, stage_n = _stage_percentiles(main_oks)
 
+    # Per-op-kind aggregates pulled from the same header's `ops` list.
+    # Useful for "in complex plans, which op is the slow one?" — for our
+    # current op set the answer is always "neither, ops are < 20 ms" but
+    # that's exactly what we want to confirm with measurement.
+    op_p50, op_p95, op_n = _op_percentiles(main_oks)
+
     return {
         "datasets_total": main_total,
         "main_success_count": len(main_oks),
@@ -368,6 +374,12 @@ def compute_metrics(results: Iterable[CaseResult]) -> dict:
         "stage_p50_s": stage_p50,
         "stage_p95_s": stage_p95,
         "stage_sample_n": stage_n,
+        # Per-op-kind timings (milliseconds). Aggregated across every op
+        # invocation in every successful main turn — a 6-op plan
+        # contributes 6 entries to whichever kinds it used.
+        "op_p50_ms": op_p50,
+        "op_p95_ms": op_p95,
+        "op_sample_n": op_n,
     }
 
 
@@ -421,6 +433,49 @@ def _stage_percentiles(
         p50[stage] = samples[len(samples) // 2]
         idx = min(math.ceil(len(samples) * 0.95) - 1, len(samples) - 1)
         p95[stage] = samples[max(idx, 0)]
+    return p50, p95, sample_n
+
+
+def _op_percentiles(
+    main_oks: list[CaseResult],
+) -> tuple[dict[str, float], dict[str, float], dict[str, int]]:
+    """Per-op-kind P50/P95 across every op invocation, in milliseconds.
+
+    The header carries `ops: [{kind, out, ms}, ...]` per request. We
+    flatten across all successful turns and bucket by `kind` — so a
+    `group_by` op contributes one sample per appearance, regardless of
+    which case used it. This answers "in a complex 8-op plan, which
+    *kind* of op is the slow one" rather than the per-stage view's
+    "is execute as a whole slow".
+
+    Returns three parallel dicts keyed by op kind. Buckets with no
+    samples are omitted (rather than zero-filled) so the renderer can
+    show "未实现" honestly when an older deploy didn't surface `ops`.
+    """
+    by_kind: dict[str, list[float]] = {}
+    for r in main_oks:
+        timings = r.main.stage_timings or {}
+        ops = timings.get("ops") if isinstance(timings, dict) else None
+        if not isinstance(ops, list):
+            continue
+        for entry in ops:
+            if not isinstance(entry, dict):
+                continue
+            kind = entry.get("kind")
+            ms = entry.get("ms")
+            if not isinstance(kind, str) or not isinstance(ms, (int, float)) or ms < 0:
+                continue
+            by_kind.setdefault(kind, []).append(float(ms))
+
+    p50: dict[str, float] = {}
+    p95: dict[str, float] = {}
+    sample_n: dict[str, int] = {}
+    for kind, samples in by_kind.items():
+        samples.sort()
+        sample_n[kind] = len(samples)
+        p50[kind] = samples[len(samples) // 2]
+        idx = min(math.ceil(len(samples) * 0.95) - 1, len(samples) - 1)
+        p95[kind] = samples[max(idx, 0)]
     return p50, p95, sample_n
 
 

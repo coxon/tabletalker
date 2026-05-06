@@ -118,6 +118,58 @@ def _stage_rows(
     return rows
 
 
+# Display order for the per-op-kind table. Kinds not in this list still
+# render at the bottom in alphabetical order — we don't drop unknown
+# kinds because the executor's op set may grow before this file does.
+_OP_DISPLAY_ORDER: tuple[str, ...] = (
+    "load_csv",
+    "load_excel",
+    "select_columns",
+    "filter_rows",
+    "add_column",
+    "group_by",
+    "aggregate",
+    "sort",
+    "head",
+    "tail",
+    "join",
+    "pivot",
+    "melt",
+    "to_table",
+    "to_chart",
+)
+
+
+def _op_rows(
+    op_p50: dict, op_p95: dict, op_n: dict
+) -> list[str]:
+    """Build markdown rows for §9 per-op-kind breakdown.
+
+    One row per op kind that appeared in any successful turn. Each row
+    shows P50/P95 in milliseconds and the sample size (= total
+    invocations across all turns, since one plan can use a kind multiple
+    times). Empty when no turn surfaced `ops` in the header.
+    """
+    if not isinstance(op_n, dict) or not op_n:
+        return []
+    seen = set(op_n.keys())
+    ordered = [k for k in _OP_DISPLAY_ORDER if k in seen]
+    extras = sorted(seen - set(_OP_DISPLAY_ORDER))
+    rows: list[str] = []
+    for kind in ordered + extras:
+        n = op_n.get(kind, 0)
+        if not isinstance(n, int) or n <= 0:
+            continue
+        p50_v = op_p50.get(kind)
+        p95_v = op_p95.get(kind)
+        if not isinstance(p50_v, (int, float)) or not isinstance(p95_v, (int, float)):
+            continue
+        rows.append(
+            f"| `{kind}` | {float(p50_v):.2f} / {float(p95_v):.2f} | {n} |"
+        )
+    return rows
+
+
 def render(run_dir: Path, commit_sha: str | None) -> str:
     summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
     metrics = summary["metrics"]
@@ -168,6 +220,14 @@ def render(run_dir: Path, commit_sha: str | None) -> str:
     stage_p95 = metrics.get("stage_p95_s") or {}
     stage_n = metrics.get("stage_sample_n") or {}
     stage_rows = _stage_rows(stage_p50, stage_p95, stage_n)
+
+    # Per-op-kind timings: same source (`X-Stage-Timings.ops`),
+    # different aggregation. Empty when the run is from an older deploy
+    # that didn't surface `ops` — the §9.1 sub-section is then omitted.
+    op_p50 = metrics.get("op_p50_ms") or {}
+    op_p95 = metrics.get("op_p95_ms") or {}
+    op_n = metrics.get("op_sample_n") or {}
+    op_rows = _op_rows(op_p50, op_p95, op_n)
 
     # Per-trap-category breakdown (subset of trap_total). Only refusal-
     # expected traps roll into the must-refuse categories; non-refusal
@@ -307,6 +367,14 @@ def render(run_dir: Path, commit_sha: str | None) -> str:
 | 单次问答 P95 (s) | {_fmt_seconds(p95)} | ≤ 60 | 同上 |
 {chr(10).join(stage_rows)}
 | 内存峰值 (MB) | 未实现 | ≤ 1024 | 未上 memory-profiler |
+
+### 9.1 算子级耗时（仅 `execute` 阶段拆解）
+
+> Source: `X-Stage-Timings.ops` (per-request); aggregation across all
+> 200-OK main turns. P50 / P95 in **毫秒** (ms), n = 总调用次数（一份计划
+> 用了几次该算子就计几次）。当 `ops` 字段缺失（旧版后端）时本节为空。
+
+{('| 算子 | P50 / P95 (ms) | 样本数 |' + chr(10) + '|---|---|---|' + chr(10) + chr(10).join(op_rows)) if op_rows else '_无样本（后端未返回 `X-Stage-Timings.ops`，或所有 main 用例均失败）。_'}
 
 ---
 

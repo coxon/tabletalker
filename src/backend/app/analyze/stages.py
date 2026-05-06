@@ -65,12 +65,20 @@ class StageTimer:
     All durations are seconds (float). `started_at` is wall-clock for
     eyeballing alignment with server logs; durations come from
     `time.perf_counter()` for monotonic correctness.
+
+    `ops` is a parallel, optional dimension: when the executor finishes
+    we stuff each op's `(kind, out, ms)` here so the eval renderer can
+    show "which op in a complex plan was the slow one". The umbrella
+    `execute` duration in `durations` still reflects total time inside
+    the executor (so total_s remains additive over `durations`); `ops`
+    is purely diagnostic.
     """
 
     started_wall: float = field(default_factory=time.time)
     _t0: float = field(default_factory=time.perf_counter)
     _last: float = field(init=False)
     durations: dict[str, float] = field(default_factory=dict)
+    ops: list[dict[str, object]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self._last = self._t0
@@ -85,17 +93,44 @@ class StageTimer:
         self.durations[stage] = max(0.0, now - self._last)
         self._last = now
 
+    def record_ops(self, op_entries: list[dict[str, object]]) -> None:
+        """Attach the executor's per-op timings.
+
+        `op_entries` is `[{kind, out, ms}, ...]` in plan order. We don't
+        recompute durations here — the executor already wall-clocks each
+        op via `result.ms`, so we just transcribe. Called once per
+        request, post-execute, by the handler.
+        """
+        # Defensive copy + clamp shape so a buggy caller can't smuggle
+        # surprise keys into the response header (which is parsed by the
+        # eval renderer).
+        clean: list[dict[str, object]] = []
+        for entry in op_entries:
+            clean.append(
+                {
+                    "kind": str(entry.get("kind", "")),
+                    "out": str(entry.get("out", "")),
+                    "ms": round(float(entry.get("ms") or 0.0), 3),
+                }
+            )
+        self.ops = clean
+
     def total_s(self) -> float:
         """Sum of recorded stage durations (≈ end-to-end wall time)."""
         return sum(self.durations.values())
 
     def as_payload(self) -> dict[str, object]:
         """JSON-safe dict for the response header."""
-        return {
+        payload: dict[str, object] = {
             "started_wall": round(self.started_wall, 3),
             "total_s": round(self.total_s(), 4),
             "stages": {k: round(v, 4) for k, v in self.durations.items()},
         }
+        # Only include `ops` when populated — refusal-carry / library-mode
+        # callers leave it empty and the header stays compact.
+        if self.ops:
+            payload["ops"] = self.ops
+        return payload
 
 
 # Per-request binding. `None` means "no caller asked for timings"; the
@@ -135,6 +170,19 @@ def record(stage: str) -> None:
         timer.record(stage)
 
 
+def record_ops(op_entries: list[dict[str, object]]) -> None:
+    """Attach per-op timings to the bound timer; no-op otherwise.
+
+    The handler calls this once after the executor returns, passing
+    `[{kind, out, ms}, ...]` in plan order. The eval runner reads it
+    out of the `X-Stage-Timings` header to surface "which op in a
+    complex plan was the slow one".
+    """
+    timer = _active.get()
+    if timer is not None:
+        timer.record_ops(op_entries)
+
+
 def serialize_header(timer: StageTimer) -> str:
     """JSON-encode the timer for the `X-Stage-Timings` response header.
 
@@ -151,5 +199,6 @@ __all__ = [
     "StageTimer",
     "bind_stage_timer",
     "record",
+    "record_ops",
     "serialize_header",
 ]

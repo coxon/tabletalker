@@ -26,6 +26,7 @@ from app.analyze.stages import (
     StageTimer,
     bind_stage_timer,
     record,
+    record_ops,
     serialize_header,
 )
 from app.main import app
@@ -74,12 +75,50 @@ def test_serialize_header_shape() -> None:
     timer.record("plan_llm")
     raw = serialize_header(timer)
     payload = json.loads(raw)
+    # `ops` is optional — only present when populated.
     assert payload.keys() == {"started_wall", "total_s", "stages"}
     assert payload["total_s"] == pytest.approx(
         sum(payload["stages"].values()), rel=1e-6, abs=1e-6
     )
     # All stage names live in STAGE_ORDER (typo guard for handler.py).
     assert set(payload["stages"]).issubset(set(STAGE_ORDER))
+
+
+def test_record_ops_attaches_op_breakdown() -> None:
+    """Per-op timings ride alongside `stages` for diagnostic depth."""
+    with bind_stage_timer() as t:
+        record("execute")
+        record_ops(
+            [
+                {"kind": "load_csv", "out": "raw", "ms": 12.345},
+                {"kind": "group_by", "out": "g", "ms": 0.7},
+                {"kind": "aggregate", "out": "totals", "ms": 1.2},
+            ]
+        )
+    assert len(t.ops) == 3
+    assert t.ops[0] == {"kind": "load_csv", "out": "raw", "ms": 12.345}
+    raw = serialize_header(t)
+    payload = json.loads(raw)
+    assert "ops" in payload  # populated → present
+    assert [op["kind"] for op in payload["ops"]] == ["load_csv", "group_by", "aggregate"]
+    # `ms` is rounded to 3 decimal places by record_ops; this is the
+    # contract eval/run.py joins on for the per-op section of §9.
+    assert payload["ops"][0]["ms"] == 12.345
+
+
+def test_record_ops_is_noop_when_unbound() -> None:
+    # Library-mode callers must not crash when no timer is attached.
+    record_ops([{"kind": "load_csv", "out": "raw", "ms": 0.1}])  # no raise
+
+
+def test_record_ops_omitted_when_empty() -> None:
+    # Refusal-carry / no-execute paths leave `ops` empty; the header
+    # stays compact rather than serialising `"ops":[]`.
+    timer = StageTimer()
+    timer.record("profile")
+    raw = serialize_header(timer)
+    payload = json.loads(raw)
+    assert "ops" not in payload
 
 
 def test_concurrent_binds_are_isolated() -> None:
@@ -194,7 +233,11 @@ def test_analyze_emits_x_stage_timings_header(
     raw = response.headers.get("X-Stage-Timings")
     assert raw, "header must be present on 200 responses"
     payload = json.loads(raw)
-    assert payload.keys() == {"started_wall", "total_s", "stages"}
+    assert {"started_wall", "total_s", "stages"}.issubset(payload.keys())
+    # Happy path runs the executor → `ops` must be present too.
+    assert "ops" in payload, "happy path must surface per-op timings"
+    assert isinstance(payload["ops"], list) and len(payload["ops"]) >= 1
+    assert {"kind", "out", "ms"}.issubset(payload["ops"][0].keys())
     # The handler walks the deterministic stages on every happy path.
     # plan_llm + finalize_llm are stubbed (zero LLM latency) but still
     # recorded — what we assert is presence, not magnitude.

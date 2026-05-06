@@ -41,6 +41,7 @@ from app.analyze.profiler import (
 )
 from app.analyze.schema import AnalyzeResponse, Evidence, Finding
 from app.analyze.stages import record as _stage
+from app.analyze.stages import record_ops as _stage_ops
 from app.report import REPORT_STORE, render_report
 from app.spreadsheet.executor import (
     ExecutionReport,
@@ -219,6 +220,16 @@ async def handle_analyze(
             status_code=422,
         ) from exc
     _stage("execute")
+    # Surface per-op timings alongside the umbrella `execute` stage so the
+    # eval renderer can show "which op in a complex plan was slow". Each
+    # entry mirrors the op's `kind`/`out`/`ms` (already wall-clocked inside
+    # the executor) — purely diagnostic, doesn't affect total_s.
+    _stage_ops(
+        [
+            {"kind": r.kind, "out": r.out, "ms": r.ms}
+            for r in report.op_results
+        ]
+    )
 
     # 5. Evidence
     evidence_rows = build_evidence(
