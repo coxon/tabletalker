@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import math
 import sys
 import time
 from collections import Counter
@@ -202,11 +203,14 @@ def compute_metrics(results: Iterable[CaseResult]) -> dict:
 
     main_latencies = sorted(r.main.latency_s for r in results)
     p50 = main_latencies[len(main_latencies) // 2] if main_latencies else 0.0
-    p95 = (
-        main_latencies[int(len(main_latencies) * 0.95) - 1]
-        if len(main_latencies) >= 5
-        else (main_latencies[-1] if main_latencies else 0.0)
-    )
+    # `math.ceil(N * 0.95)` gives the 95th-percentile rank (1-based) per
+    # the nearest-rank definition; clamp to N-1 because Python is 0-based
+    # and the ceil at N == 20 would otherwise overshoot by one.
+    if main_latencies:
+        idx = min(math.ceil(len(main_latencies) * 0.95) - 1, len(main_latencies) - 1)
+        p95 = main_latencies[max(idx, 0)]
+    else:
+        p95 = 0.0
 
     findings_total = 0
     findings_with_evidence = 0
@@ -239,8 +243,16 @@ def compute_metrics(results: Iterable[CaseResult]) -> dict:
     for r in results:
         if r.trap is not None and r.trap_expected_refusal is not None:
             trap_total += 1
-            actual = bool(((r.trap.body or {}).get("is_refusal") if r.trap.ok else None))
-            if actual == r.trap_expected_refusal:
+            # Distinguish "request failed / shape was wrong" (None) from
+            # "agent answered" (False). Coercing to False would let a
+            # transport failure read as a non-refusal and inflate
+            # correctness on `expected_refusal: false` cases.
+            if r.trap.ok:
+                v = (r.trap.body or {}).get("is_refusal")
+                actual: bool | None = v if isinstance(v, bool) else None
+            else:
+                actual = None
+            if actual is not None and actual == r.trap_expected_refusal:
                 trap_correct += 1
         if r.main.ok:
             false_refuse_total += 1
@@ -300,7 +312,8 @@ def compute_metrics(results: Iterable[CaseResult]) -> dict:
 
 
 async def main_async(args: argparse.Namespace) -> int:
-    cases = yaml.safe_load(CASES_FILE.read_text(encoding="utf-8"))
+    all_cases = yaml.safe_load(CASES_FILE.read_text(encoding="utf-8"))
+    cases = all_cases
 
     # `--resume <run-dir>` reuses an existing run directory and only
     # re-runs cases whose previous JSON dump shows a non-200 main turn
@@ -351,12 +364,12 @@ async def main_async(args: argparse.Namespace) -> int:
             )
 
     # Order results by their place in cases.yaml so the End-to-end
-    # table in the rendered metrics file is in the natural 01..15 order.
-    canonical_order = [
-        c["id"]
-        for c in yaml.safe_load(CASES_FILE.read_text(encoding="utf-8"))
-    ]
-    results.sort(key=lambda r: canonical_order.index(r.case_id))
+    # table in the rendered metrics file is in the natural 01..15
+    # order. Stale resumed JSONs (case_id no longer in cases.yaml) get
+    # an out-of-range key and sort to the end rather than crashing the
+    # whole run.
+    canonical_index = {c["id"]: i for i, c in enumerate(all_cases)}
+    results.sort(key=lambda r: canonical_index.get(r.case_id, len(canonical_index)))
 
     metrics = compute_metrics(results)
     completed = time.strftime("%Y-%m-%dT%H:%M:%S")

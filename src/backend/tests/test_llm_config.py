@@ -58,3 +58,13 @@ def test_from_env_bad_timeout_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     _set_env(monkeypatch, LLM_TIMEOUT_S="not-a-number")
     with pytest.raises(LLMConfigError, match="LLM_TIMEOUT_S"):
         LLMConfig.from_env()
+
+
+@pytest.mark.parametrize("bad", ["0", "-1", "-0.5", "nan", "inf", "-inf"])
+def test_from_env_rejects_non_positive_or_non_finite_timeout(
+    monkeypatch: pytest.MonkeyPatch, bad: str
+) -> None:
+    """0, negatives, NaN, +/-inf must fail at config-load time, not at request time."""
+    _set_env(monkeypatch, LLM_TIMEOUT_S=bad)
+    with pytest.raises(LLMConfigError, match="LLM_TIMEOUT_S"):
+        LLMConfig.from_env()

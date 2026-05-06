@@ -13,6 +13,7 @@ Config is read from env via `LLMConfig.from_env()`:
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -34,11 +35,19 @@ class LLMConfig:
     @classmethod
     def from_env(cls) -> LLMConfig:
         try:
+            timeout_s = float(os.environ.get("LLM_TIMEOUT_S", "120"))
+            # Reject 0, negatives, NaN, +/-inf — these would fail later on the
+            # request path with an opaque httpx error; failing here keeps the
+            # blast radius at config-load time.
+            if not math.isfinite(timeout_s) or timeout_s <= 0:
+                raise ValueError(
+                    "LLM_TIMEOUT_S must be a positive finite number"
+                )
             return cls(
                 base_url=os.environ["LLM_BASE_URL"].rstrip("/"),
                 api_key=os.environ["LLM_API_KEY"],
                 model=os.environ["LLM_MODEL"],
-                timeout_s=float(os.environ.get("LLM_TIMEOUT_S", "120")),
+                timeout_s=timeout_s,
             )
         except KeyError as exc:
             raise LLMConfigError(
@@ -47,7 +56,7 @@ class LLMConfig:
             ) from exc
         except ValueError as exc:
             raise LLMConfigError(
-                f"LLM_TIMEOUT_S must be a number: {exc}"
+                f"LLM_TIMEOUT_S must be a positive finite number: {exc}"
             ) from exc
 
 

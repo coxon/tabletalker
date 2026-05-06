@@ -7,8 +7,8 @@
 > `docs/refusal-policy.md` §"why we don't fake metrics".
 
 - **Repository:** TableTalker
-- **Reporting commit:** `c7af6e2`
-- **Reporting window:** 2026-05-06T14:21:48 → 2026-05-06T14:56:55
+- **Reporting commit:** `6061334`
+- **Reporting window:** 2026-05-06T15:27:44 → 2026-05-06T15:38:32
 - **Datasets evaluated:** 15 / 15
 - **Source run dir:** `eval/runs/20260506-132000/`
 
@@ -51,7 +51,7 @@
 |---|---|---|---|
 | 报告渲染成功率 | 100.0% | ≥ 99 % | `report_html_url` 存在并指向 `/reports/{id}.html` |
 | 图表种类覆盖 | 3 种 | ≥ 3 种 | run.py 里跨用例统计 distinct chart.type |
-| 报告平均字数 | 274 | 800 – 2000 | summary 字符数（汉字按 1 计） |
+| 报告平均字数 | 282 | 800 – 2000 | summary 字符数（汉字按 1 计） |
 
 ## 6. 拒答与陷阱 (Refusal on trap questions)
 
@@ -61,8 +61,8 @@
 | 维度错配类拒答准确率 | 0.0% (0/2) | ≥ 95 % | 01/02（按种族/婚姻状况维度） |
 | 诱导幻觉类先核算后纠正准确率 | 未实现 | ≥ 95 % | 当前 cases.yaml 未编排此类别 |
 | 越权类拒答准确率 | 未实现 | ≥ 95 % | 当前 cases.yaml 未编排此类别 |
-| 误拒率 (false-refuse) | 0.0% | ≤ 5 % | main 中错误标记 is_refusal=true 的占比 |
-| 综合拒答准确率（trap 集） | 0.0% (0/4) | ≥ 95 % | 全部 4 个 trap 用例的 is_refusal 是否符合预期 |
+| 误拒率 (false-refuse) | 0.0% | ≤ 5 % | 含 12 号 expected_refusal=false 反向用例 |
+| 综合拒答准确率（trap 集） | 20.0% (1/5) | ≥ 95 % | 全部 5 个 trap 用例 is_refusal 是否符合预期 |
 
 ## 7. 多轮跟进 (Follow-up multi-turn)
 
@@ -88,7 +88,7 @@
 | 09_telecom_churn | 1.0 | 未实现 | — | 基于 main 是否 200 + 是否有 finding |
 | 10_realestate_listings | 1.0 | 未实现 | — | 基于 main 是否 200 + 是否有 finding |
 | 11_movie_ratings | 1.0 | 未实现 | — | 基于 main 是否 200 + 是否有 finding |
-| 12_fitness_tracker | 1.0 | 未实现 | — | 基于 main 是否 200 + 是否有 finding |
+| 12_fitness_tracker | 1.0 | 未实现 | ✓ | 基于 main 是否 200 + 是否有 finding |
 | 13_iot_sensor | 1.0 | 未实现 | — | 基于 main 是否 200 + 是否有 finding |
 | 14_titanic | 1.0 | 未实现 | ✗ | 基于 main 是否 200 + 是否有 finding |
 | 15_world_gdp | 0.0 | 未实现 | — | 基于 main 是否 200 + 是否有 finding |
@@ -100,8 +100,8 @@
 | 指标 | 当前值 | 目标 | 备注 |
 |---|---|---|---|
 | 冷启动 → 首次响应 (s) | 未实现 | ≤ 5 | uvicorn warm-up 未单独计时 |
-| 单次问答 P50 (s) | 109.6 | ≤ 30 | 注意：含 LLM round-trip；本机 LLM 网关较慢 |
-| 单次问答 P95 (s) | 145.7 | ≤ 60 | 同上 |
+| 单次问答 P50 (s) | 107.6 | ≤ 30 | 注意：含 LLM round-trip；本机 LLM 网关较慢 |
+| 单次问答 P95 (s) | 138.4 | ≤ 60 | 同上 |
 | 内存峰值 (MB) | 未实现 | ≤ 1024 | 未上 memory-profiler |
 
 ---

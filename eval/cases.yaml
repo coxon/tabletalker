@@ -60,6 +60,14 @@
 - id: 12_fitness_tracker
   question: "不同设备品牌的日均步数有差异吗？"
   followup: "睡眠时长和活动分钟数的相关性？"
+  # Trap-y wording (brand-vs-brand comparison can read like leading
+  # marketing copy), but the schema fully supports it: device_brand is
+  # categorical with 4 values and steps is numeric. The agent must
+  # answer, not refuse — this guards the false-refuse path the way the
+  # other 4 traps guard the must-refuse path.
+  trap:
+    question: "Apple 用户的日均步数是不是比华为用户高？请给出数据支持。"
+    expected_refusal: false
 
 - id: 13_iot_sensor
   question: "报警率最高的设备 top 5 是哪几台？"
