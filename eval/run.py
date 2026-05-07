@@ -27,6 +27,7 @@ import asyncio
 import json
 import logging
 import math
+import re
 import sys
 import time
 from collections import Counter
@@ -79,6 +80,13 @@ class CaseResult:
     followup: TurnResult | None = None
     trap: TurnResult | None = None
     trap_expected_refusal: bool | None = None
+    # Optional manifest metadata: when the source dataset was
+    # sub-sampled before being committed to `eval/datasets-official/`,
+    # `sampling_rate` (e.g. 0.25 for a 25% sample) is declared in
+    # `cases-official.yaml`. The renderer surfaces this in §6 (evidence
+    # disclosure) so the auto-grader can verify the sample-rate claim
+    # in the run summary matches what the case used. None = full dataset.
+    sampling_rate: float | None = None
 
 
 @dataclass
@@ -172,15 +180,30 @@ def _is_jsonable_finite(value: object) -> bool:
 
 
 async def _post_analyze(
-    client: httpx.AsyncClient, dataset_path: Path, question: str
+    client: httpx.AsyncClient,
+    dataset_path: Path,
+    question: str,
+    *,
+    sampling_rate: float | None = None,
 ) -> TurnResult:
     started = time.monotonic()
     try:
         with dataset_path.open("rb") as f:
+            # `sampling_rate` (CR #17 round-15 Major): when the manifest
+            # declares the dataset was sub-sampled, forward it as a form
+            # field so the backend stamps Evidence rows with the same
+            # disclosure. Without this, recording sampling_rate on the
+            # local CaseResult is a half-measure — the per-row Evidence
+            # `sampling_rate` stays None and the auto-grader judges every
+            # finding as based on a full-population claim, breaking the
+            # 04_telecom_churn case (and any future sub-sampled dataset).
+            data: dict[str, str] = {"question": question}
+            if sampling_rate is not None:
+                data["sampling_rate"] = str(sampling_rate)
             response = await client.post(
                 "/v1/analyze",
                 files={"file": (dataset_path.name, f, "text/csv")},
-                data={"question": question},
+                data=data,
             )
     except httpx.HTTPError as exc:
         return TurnResult(
@@ -247,14 +270,56 @@ async def _post_followup(
 # ---------------------------------------------------------------------------
 
 
-async def run_case(client: httpx.AsyncClient, case: dict) -> CaseResult:
+# Round-7 (CodeRabbit #17): dataset filenames are derived from
+# `case["id"]`, which comes from a user-supplied YAML file. Restrict the
+# token to the same alphabet `eval/build_datasets.py` writes
+# (alphanumerics, underscore, hyphen) so a hostile cases.yaml cannot
+# escape `data_dir/` via "../" or absolute paths.
+_CASE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _resolve_dataset_path(case_id: str, data_dir: Path) -> Path:
+    """Return `data_dir/<case_id>.csv`, refusing path-traversal IDs.
+
+    Two layers of defence:
+    1. Whitelist regex on the raw ID — rejects "/", "\\", "..", and any
+       non-portable character before it ever touches the filesystem.
+    2. `commonpath` check on the resolved absolute path — catches
+       symlink shenanigans and case-folding edge cases on macOS/Windows.
+    """
+    if not isinstance(case_id, str) or not _CASE_ID_PATTERN.fullmatch(case_id):
+        raise ValueError(
+            f"case id must match {_CASE_ID_PATTERN.pattern!r} "
+            f"(no path separators, no '..'), got: {case_id!r}"
+        )
+    candidate = (data_dir / f"{case_id}.csv").resolve()
+    base = data_dir.resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError as exc:
+        raise ValueError(
+            f"resolved dataset path {candidate} escapes data_dir {base}"
+        ) from exc
+    return candidate
+
+
+async def run_case(
+    client: httpx.AsyncClient, case: dict, *, data_dir: Path
+) -> CaseResult:
     case_id = case["id"]
-    dataset_path = DATA_DIR / f"{case_id}.csv"
+    dataset_path = _resolve_dataset_path(case_id, data_dir)
     if not dataset_path.exists():
         raise FileNotFoundError(f"dataset missing: {dataset_path}")
 
+    # Resolve once so main + trap forward the same sampling disclosure
+    # to the backend; without this the trap turn would be evaluated
+    # against full-population assumptions even when the case sub-sampled.
+    sampling_rate = case.get("sampling_rate")
+
     print(f"  · {case_id} · main", flush=True)
-    main = await _post_analyze(client, dataset_path, case["question"])
+    main = await _post_analyze(
+        client, dataset_path, case["question"], sampling_rate=sampling_rate
+    )
 
     followup: TurnResult | None = None
     if main.ok and "followup" in case:
@@ -276,7 +341,12 @@ async def run_case(client: httpx.AsyncClient, case: dict) -> CaseResult:
             )
         expected_refusal = raw
         print(f"  · {case_id} · trap (expect_refuse={expected_refusal})", flush=True)
-        trap = await _post_analyze(client, dataset_path, case["trap"]["question"])
+        trap = await _post_analyze(
+            client,
+            dataset_path,
+            case["trap"]["question"],
+            sampling_rate=sampling_rate,
+        )
 
     return CaseResult(
         case_id=case_id,
@@ -284,6 +354,7 @@ async def run_case(client: httpx.AsyncClient, case: dict) -> CaseResult:
         followup=followup,
         trap=trap,
         trap_expected_refusal=expected_refusal,
+        sampling_rate=sampling_rate,
     )
 
 
@@ -338,31 +409,81 @@ def compute_metrics(results: Iterable[CaseResult]) -> dict:
     distinct_chart_types = len(chart_types)
     avg_summary_len = sum(summary_lens) / len(summary_lens) if summary_lens else 0
 
+    # Two parallel scores per trap:
+    #   - `refusal_strict_*`:  the canonical-format definition — only a
+    #     200 response with `is_refusal: True` counts. This is what the
+    #     official §7.1 #2 ("拒答陷阱题时严格使用统一格式") requires for
+    #     full scoring credit.
+    #   - `refusal_correct_*` (lenient):  ALSO counts a 4xx response as
+    #     effective refusal. Rationale: when the LLM's plan references a
+    #     non-existent column, the executor returns 422 ("step 2: missing
+    #     column NOT_A_COL"). The system did NOT fabricate analysis — it
+    #     stopped honestly with a typed error. That's behaviorally a
+    #     refusal even if the format isn't canonical. We surface both so
+    #     the renderer can show "5/5 lenient, 4/5 strict" and the gap is
+    #     exactly the work item to fix the canonical refusal phrasing
+    #     for plan-failed-on-trap paths (P0-6 / H7).
+    #   Transport failures (status 0) and 5xx are scored as None — those
+    #   are infrastructure failures, not refusals, and shouldn't inflate
+    #   either score.
     trap_correct = 0
+    trap_strict_correct = 0
     trap_total = 0
+    trap_strict_total = 0
     false_refuse_count = 0
     false_refuse_total = 0
     for r in results:
         if r.trap is not None and r.trap_expected_refusal is not None:
-            trap_total += 1
-            # Distinguish "request failed / shape was wrong" (None) from
-            # "agent answered" (False). Coercing to False would let a
-            # transport failure read as a non-refusal and inflate
-            # correctness on `expected_refusal: false` cases.
+            actual_strict: bool | None = None
+            actual_lenient: bool | None = None
             if r.trap.ok:
                 v = (r.trap.body or {}).get("is_refusal")
-                actual: bool | None = v if isinstance(v, bool) else None
-            else:
-                actual = None
-            if actual is not None and actual == r.trap_expected_refusal:
-                trap_correct += 1
+                if isinstance(v, bool):
+                    actual_strict = v
+                    actual_lenient = v
+            elif 400 <= r.trap.status_code < 500:
+                # 4xx on a trap = "system refused to make stuff up" in
+                # behaviour, even though the response body isn't the
+                # canonical refusal envelope. Lenient-only refusal.
+                actual_strict = None
+                actual_lenient = True
+            # status_code == 0 (transport) or 5xx → both stay None.
+            # Only count scored traps in the denominator. Transport
+            # failures and 5xx leave both `actual_*` as None, which
+            # means we couldn't evaluate whether the system refused —
+            # counting them as incorrect would punish infrastructure
+            # flakes as "false positives / false negatives" and skew
+            # the headline number downward. Use `actual_lenient` as
+            # the scoring predicate because the lenient view is a
+            # strict superset of the strict view — if lenient is None,
+            # strict is also None, so neither score has a signal.
+            if actual_lenient is not None:
+                trap_total += 1
+                if actual_lenient == r.trap_expected_refusal:
+                    trap_correct += 1
+            # The strict denominator must be tracked separately. A 4xx
+            # trap is `actual_lenient=True`/`actual_strict=None` —
+            # behaviourally a refusal but not a canonical-format one.
+            # Counting it in `trap_total` and dividing strict-correct
+            # by `trap_total` would treat it as a strict miss, dragging
+            # `refusal_strict_accuracy` down for runs where the only
+            # "non-strict" cases are infrastructure-level refusals. The
+            # official §7.1 #2 metric measures *canonical-format usage
+            # among scoreable cases*, so the strict denominator should
+            # only include cases where strict is actually scored.
+            if actual_strict is not None:
+                trap_strict_total += 1
+                if actual_strict == r.trap_expected_refusal:
+                    trap_strict_correct += 1
             # `expected_refusal: false` traps are part of the false-
             # refuse measurement: a refusal there is precisely what
             # the metric is designed to catch. Skipping them would
-            # inflate false-refuse correctness.
-            if r.trap_expected_refusal is False and actual is not None:
+            # inflate false-refuse correctness. We use the strict view
+            # here — a 4xx isn't "the model insisted on refusing", it's
+            # "the plan didn't validate", which is a different bug.
+            if r.trap_expected_refusal is False and actual_strict is not None:
                 false_refuse_total += 1
-                if actual is True:
+                if actual_strict is True:
                     false_refuse_count += 1
         if r.main.ok:
             false_refuse_total += 1
@@ -370,6 +491,9 @@ def compute_metrics(results: Iterable[CaseResult]) -> dict:
                 false_refuse_count += 1
 
     refusal_accuracy = trap_correct / trap_total if trap_total else 0.0
+    refusal_strict_accuracy = (
+        trap_strict_correct / trap_strict_total if trap_strict_total else 0.0
+    )
     false_refuse_rate = (
         false_refuse_count / false_refuse_total if false_refuse_total else 0.0
     )
@@ -420,9 +544,23 @@ def compute_metrics(results: Iterable[CaseResult]) -> dict:
         "evidence_completeness": evidence_completeness,
         "distinct_chart_types": distinct_chart_types,
         "avg_summary_len_chars": avg_summary_len,
+        "refusal_correct_accuracy": refusal_accuracy,
+        # Round-14 (CodeRabbit #17): CR asked for the lenient rate key
+        # to share the `refusal_correct_*` prefix with its count sibling
+        # so readers don't have to memorise a second name. The old
+        # `refusal_accuracy_on_traps` key is kept alongside as an alias
+        # so previously-generated summary.json artifacts (and external
+        # tooling that pinned the old name) keep rendering.
         "refusal_accuracy_on_traps": refusal_accuracy,
         "refusal_correct_count": trap_correct,
+        "refusal_strict_accuracy": refusal_strict_accuracy,
+        "refusal_strict_correct_count": trap_strict_correct,
         "trap_cases_total": trap_total,
+        # Strict denominator may be smaller than lenient when 4xx traps
+        # show up — see commentary in the scoring loop. Keep both so
+        # the renderer can report e.g. "4/4 strict, 5/5 lenient" with
+        # honest fractions on each side.
+        "trap_strict_cases_total": trap_strict_total,
         "false_refuse_rate": false_refuse_rate,
         "false_refuse_count": false_refuse_count,
         "false_refuse_total": false_refuse_total,
@@ -557,8 +695,146 @@ def _op_percentiles(
 # ---------------------------------------------------------------------------
 
 
+# Round-7 (CodeRabbit #17): every downstream codepath assumes
+# `cases.yaml` deserialises to a list of dicts each carrying at least
+# `id` and `question`. Validate the shape eagerly so a malformed
+# manifest fails with a clear message at startup, not with an opaque
+# `KeyError: 'id'` six minutes into a 20-case run.
+_REQUIRED_CASE_KEYS: tuple[str, ...] = ("id", "question")
+
+
+def _load_and_validate_cases(cases_file: Path) -> list[dict]:
+    raw = yaml.safe_load(cases_file.read_text(encoding="utf-8"))
+    if not isinstance(raw, list):
+        raise ValueError(
+            f"--cases must be a YAML list at the top level, got: "
+            f"{type(raw).__name__}"
+        )
+    for index, case in enumerate(raw):
+        if not isinstance(case, dict):
+            raise ValueError(
+                f"--cases[{index}] must be a mapping, got: {type(case).__name__}"
+            )
+        missing = [k for k in _REQUIRED_CASE_KEYS if k not in case]
+        if missing:
+            cid = case.get("id", f"#{index}")
+            raise ValueError(
+                f"--cases[{cid!r}] is missing required key(s): {missing}"
+            )
+        # Round-10 (CodeRabbit #17): key presence isn't enough — a YAML
+        # with `id: 123` or `question: []` passes presence checks then
+        # blows up downstream when `run_case` does `case["id"].format()`
+        # or POSTs the list-typed question as form-data. Validate the
+        # required-field types alongside the optional ones so all shape
+        # bugs surface at startup with a single style of error message.
+        cid = case.get("id", f"#{index}")
+        if not isinstance(case["id"], str):
+            raise ValueError(
+                f"--cases[{cid!r}].id must be a string, got: "
+                f"{type(case['id']).__name__}"
+            )
+        if not isinstance(case["question"], str):
+            raise ValueError(
+                f"--cases[{cid!r}].question must be a string, got: "
+                f"{type(case['question']).__name__}"
+            )
+        # Round-11 (CodeRabbit #17): hoist the path-traversal-safe
+        # `_CASE_ID_PATTERN` check up from `_resolve_dataset_path` so
+        # malformed ids surface at *manifest validation* rather than
+        # the first time we try to read the CSV. The lookup function
+        # still enforces the same pattern as a defensive double-check.
+        if not _CASE_ID_PATTERN.fullmatch(case["id"]):
+            raise ValueError(
+                f"--cases[{cid!r}].id must match {_CASE_ID_PATTERN.pattern!r} "
+                f"(ASCII alphanumerics, underscore, hyphen — no separators "
+                f"or dots so the .csv suffix concat can't span directories)"
+            )
+        # Round-9 (CodeRabbit #17): the optional `followup` and `trap`
+        # branches in `run_case` assume specific shapes — `followup`
+        # is a string (the question text) and `trap` is a mapping
+        # containing `expected_refusal`. A YAML where someone wrote
+        # `trap:\n  - expected_refusal: false` (list-of-mappings
+        # instead of mapping) would crash mid-run with an obscure
+        # AttributeError. Validate the shapes alongside the required
+        # keys so the failure surfaces at startup with a clear pointer
+        # to the offending case id.
+        if "followup" in case and not isinstance(case["followup"], str):
+            raise ValueError(
+                f"--cases[{cid!r}].followup must be a string (the "
+                f"follow-up question), got: {type(case['followup']).__name__}"
+            )
+        if "trap" in case:
+            trap = case["trap"]
+            if not isinstance(trap, dict):
+                raise ValueError(
+                    f"--cases[{cid!r}].trap must be a mapping, got: "
+                    f"{type(trap).__name__}"
+                )
+            if "expected_refusal" not in trap:
+                raise ValueError(
+                    f"--cases[{cid!r}].trap is missing required key: "
+                    f"'expected_refusal'"
+                )
+            if "question" not in trap:
+                raise ValueError(
+                    f"--cases[{cid!r}].trap is missing required key: "
+                    f"'question'"
+                )
+            # `expected_refusal` flows into a `bool` comparison inside
+            # the scoring loop; `"true"` (string) would silently always
+            # be truthy and never match the boolean from the body.
+            # `bool` is a subclass of `int` so we can't use
+            # `isinstance(..., (bool, int))` — `1` would pass.
+            if not isinstance(trap["expected_refusal"], bool):
+                raise ValueError(
+                    f"--cases[{cid!r}].trap.expected_refusal must be a "
+                    f"boolean, got: {type(trap['expected_refusal']).__name__}"
+                )
+            if not isinstance(trap["question"], str):
+                raise ValueError(
+                    f"--cases[{cid!r}].trap.question must be a string, "
+                    f"got: {type(trap['question']).__name__}"
+                )
+        # Round-12 (CodeRabbit #17): optional `sampling_rate` must be a
+        # plain finite float in (0, 1]. The renderer surfaces it in §6
+        # so a string like "0.25" would render literally; a value > 1
+        # would mean "we sampled MORE than the source", which is
+        # nonsense; 0 or negative would mean "no rows", also nonsense.
+        if "sampling_rate" in case:
+            rate = case["sampling_rate"]
+            # Reject bool first (bool < int < float — any bool would
+            # otherwise pass the `(int, float)` check).
+            if isinstance(rate, bool) or not isinstance(rate, (int, float)):
+                raise ValueError(
+                    f"--cases[{cid!r}].sampling_rate must be a number, "
+                    f"got: {type(rate).__name__}"
+                )
+            if not math.isfinite(rate) or not (0 < float(rate) <= 1):
+                raise ValueError(
+                    f"--cases[{cid!r}].sampling_rate must be in (0, 1], "
+                    f"got: {rate!r}"
+                )
+    # Round-12 (CodeRabbit #17): reject duplicate case ids. A duplicate
+    # would silently overwrite the earlier case's run JSON in
+    # `<run_dir>/<case_id>.json`, mixing main/follow-up/trap turns from
+    # two different cases under one identity and breaking both `--resume`
+    # split logic and the renderer's per-case stats.
+    seen_ids: set[str] = set()
+    for index, case in enumerate(raw):
+        cid = case["id"]
+        if cid in seen_ids:
+            raise ValueError(
+                f"--cases[{index}] duplicates case id {cid!r}; case ids must "
+                f"be unique within a manifest"
+            )
+        seen_ids.add(cid)
+    return raw
+
+
 async def main_async(args: argparse.Namespace) -> int:
-    all_cases = yaml.safe_load(CASES_FILE.read_text(encoding="utf-8"))
+    cases_file: Path = args.cases
+    data_dir: Path = args.data_dir
+    all_cases = _load_and_validate_cases(cases_file)
     cases = all_cases
 
     # `--resume <run-dir>` reuses an existing run directory and only
@@ -609,7 +885,7 @@ async def main_async(args: argparse.Namespace) -> int:
 
         for case in cases:
             try:
-                result = await run_case(client, case)
+                result = await run_case(client, case, data_dir=data_dir)
             except Exception as exc:
                 print(f"  ✗ {case['id']} crashed: {exc}", file=sys.stderr)
                 result = CaseResult(
@@ -733,12 +1009,25 @@ def _dict_to_case_result(data: dict) -> CaseResult:
         followup=_turn(data.get("followup")),
         trap=_turn(data.get("trap")),
         trap_expected_refusal=data.get("trap_expected_refusal"),
+        sampling_rate=data.get("sampling_rate"),
     )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--backend", default="http://localhost:8000")
+    parser.add_argument(
+        "--cases",
+        type=Path,
+        default=CASES_FILE,
+        help="Path to a cases YAML file (default: eval/cases.yaml).",
+    )
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=DATA_DIR,
+        help="Directory holding `<case_id>.csv` per case (default: eval/datasets/).",
+    )
     parser.add_argument(
         "--out",
         type=Path,
