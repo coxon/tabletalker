@@ -28,6 +28,7 @@ import re
 import secrets
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pandas as pd
 from pydantic import ValidationError
@@ -77,29 +78,22 @@ def _public_base_url(override: str | None = None) -> str:
     The trailing slash is stripped so the caller can safely append
     `/reports/{id}.html` without doubling separators.
 
-    Round-9 (CodeRabbit #14) — design note on the no-filter stance:
-    CR asked us to reject overrides that resolve to `localhost` /
-    `127.0.0.1` / `testserver` (defence-in-depth against a hostile
-    proxy that downgrades the X-Forwarded-Host to a loopback name).
-    We deliberately keep the override path unfiltered:
-      a) Trust is gated upstream by `APP_TRUSTED_PROXIES` (see
-         `app/main.py`), so an unverified source can never set the
-         forwarded headers in the first place. Adding a second filter
-         here is a duplicate gate, not new defence.
-      b) `testserver` is the request origin from `TestClient`. Our
-         proxy-aware contract test depends on that origin to assert
-         the route emits `http://testserver/...` rather than the
-         (wrong) env-var fallback. Filtering testserver would mask
-         the bug the test is meant to catch.
-      c) Production deploys set `APP_PUBLIC_URL` AND a known proxy.
-         The "hostile proxy emits loopback" scenario doesn't match
-         our threat model.
-    The choice is documented here so future CR runs see the rationale
-    instead of re-flagging it as an oversight.
+    Round-14 (CodeRabbit #14): filter strict-loopback overrides
+    (`localhost` / `127.0.0.1` / `::1`) and fall through to
+    `APP_PUBLIC_URL` so a deploy with an incomplete proxy config doesn't
+    hand the browser a URL it can't fetch. `testserver` is preserved
+    unfiltered because it is the authority the FastAPI TestClient
+    always emits and our proxy-aware contract test pins the URL
+    exactly to `http://testserver/...`. That name cannot appear in
+    production traffic, so keeping it out of the filter list is a
+    zero-risk test seam rather than a soft spot.
     """
 
     if override:
-        return override.rstrip("/")
+        parsed = urlsplit(override)
+        host = (parsed.hostname or "").lower()
+        if host and host not in {"localhost", "127.0.0.1", "::1"}:
+            return override.rstrip("/")
     return os.environ.get("APP_PUBLIC_URL", "http://localhost:8000").rstrip("/")
 
 

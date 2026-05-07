@@ -555,6 +555,7 @@ def test_follow_up_happy_path_emits_full_header(
     assert {"started_wall", "total_s", "stages"}.issubset(payload.keys())
     expected_minimum = {
         "profile",
+        "preview_plan_req",
         "plan_llm",
         "execute",
         "evidence",

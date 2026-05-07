@@ -248,9 +248,11 @@ def test_report_url_respects_x_forwarded_proto(
 
     With `ProxyHeadersMiddleware` mounted in `app.main`, the scheme
     flips from http→https and the `Host` header sets the authority.
-    `运行脚本/start.sh` also passes `uvicorn --proxy-headers
-    --forwarded-allow-ips '*'` for parity when the launcher is bare
-    uvicorn rather than this app middleware.
+    `运行脚本/start.sh` deliberately omits `--forwarded-allow-ips` and
+    passes only `uvicorn --proxy-headers`; proxy trust is governed by
+    the app's own `APP_TRUSTED_PROXIES` allowlist (see `app.main`), so
+    uvicorn's builtin header middleware is left at its default 127.0.0.1
+    scope and can't be tricked by an arbitrary X-Forwarded-* sender.
     """
     stub = _SequencedStubClient([_plan_json(), _narrative_json()])
     monkeypatch.setattr(api_module, "HttpChatClient", lambda config: stub)
