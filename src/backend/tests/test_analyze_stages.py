@@ -76,8 +76,12 @@ def test_serialize_header_shape() -> None:
     payload = json.loads(raw)
     # `ops` is optional — only present when populated.
     assert payload.keys() == {"started_wall", "total_s", "stages"}
+    # `payload["total_s"]` is `round(sum(raw_durations), 4)` while the
+    # RHS sums the *already-rounded* per-stage values; with N stages the
+    # discrepancy can reach N×5e-5 plus timing jitter. Match the
+    # integration test below (`abs=1e-3`) so loaded CI runners don't flake.
     assert payload["total_s"] == pytest.approx(
-        sum(payload["stages"].values()), rel=1e-6, abs=1e-6
+        sum(payload["stages"].values()), abs=1e-3
     )
     # All stage names live in STAGE_ORDER (typo guard for handler.py).
     assert set(payload["stages"]).issubset(set(STAGE_ORDER))

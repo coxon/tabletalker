@@ -52,6 +52,25 @@ STAGE_ORDER: tuple[str, ...] = (
 )
 
 
+def _safe_float(value: object) -> float:
+    """Best-effort float coercion that never raises.
+
+    `record_ops` accepts op telemetry as `dict[str, object]`, so `ms`
+    may hold anything a buggy caller put there (a string `"N/A"`, a
+    numpy scalar, `None`, etc.). `float()` would raise `ValueError` or
+    `TypeError` on those and blow up the whole handler path just to
+    publish a diagnostic header. Swallowing to `0.0` matches the rest
+    of the defensive copy — the entry is kept, its broken timing is
+    simply dropped.
+    """
+    if value is None:
+        return 0.0
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0.0
+
+
 @dataclass
 class StageTimer:
     """Mutable accumulator for one request's stage timings.
@@ -103,19 +122,16 @@ class StageTimer:
         """
         # Defensive copy + clamp shape so a buggy caller can't smuggle
         # surprise keys into the response header (which is parsed by the
-        # eval renderer).
+        # eval renderer). We also clamp `ms` to the same `max(0.0, ...)`
+        # floor that `record()` applies to stage durations — a negative
+        # value here would skew the eval P50/P95 tables silently.
         clean: list[dict[str, object]] = []
         for entry in op_entries:
-            ms_raw = entry.get("ms")
-            # `entry` is typed `dict[str, object]` so `ms_raw` is `object`.
-            # Narrow before float() to keep pyright happy and to silently
-            # coerce non-numeric junk to zero rather than crashing.
-            ms_val = float(ms_raw) if isinstance(ms_raw, (int, float)) else 0.0
             clean.append(
                 {
                     "kind": str(entry.get("kind", "")),
                     "out": str(entry.get("out", "")),
-                    "ms": round(ms_val, 3),
+                    "ms": round(max(0.0, _safe_float(entry.get("ms"))), 3),
                 }
             )
         self.ops = clean
