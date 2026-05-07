@@ -146,11 +146,21 @@ def _parse_stage_timings(response: httpx.Response) -> dict | None:
 
 def _is_jsonable_finite(value: object) -> bool:
     """Walk a JSON-decoded payload and return False on any non-finite
-    numeric leaf (NaN, +inf, -inf). Booleans are skipped — `bool` is a
-    subclass of `int` but `isinstance(True, bool)` short-circuits before
-    the numeric branch."""
+    numeric leaf (NaN, +inf, -inf) **or** any boolean leaf in a numeric
+    position.
+
+    Booleans are *rejected* rather than skipped. Round-11 (CodeRabbit
+    #14): a malformed header like
+    ``{"stages":{"execute":true},"ops":[{"kind":"load_csv","ms":false}]}``
+    would otherwise pass the finite-only filter — `bool` is a subclass
+    of `int` and `True == 1` arithmetically. Treating those as valid
+    timing values silently turns a typo into "1ms" / "0ms" entries in
+    downstream stats. Failing the validation makes the malformed payload
+    fall back to the `None` branch in `_parse_stage_timings`, same as
+    NaN/Infinity.
+    """
     if isinstance(value, bool):
-        return True
+        return False
     if isinstance(value, (int, float)):
         return math.isfinite(value)
     if isinstance(value, dict):
