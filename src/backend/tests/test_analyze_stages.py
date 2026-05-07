@@ -431,3 +431,107 @@ def test_analyze_refusal_still_emits_header(
     assert "profile" in payload["stages"]
     assert "plan_llm" not in payload["stages"]
     assert "finalize_llm" not in payload["stages"]
+
+
+# ---------------------------------------------------------------------------
+# /v1/follow-up coverage (CodeRabbit #14 round-6 outside-diff nitpick)
+#
+# `/v1/follow-up` attaches `X-Stage-Timings` on both the carry-through
+# branch (session.refused=True → `build_refusal_carry_through`, no
+# `_stage()` calls inside, so `stages` is `{}`) and the happy path
+# (full plan → execute → finalize). The shapes differ, and a regression
+# in either is silently undetectable without the header coverage that
+# `/v1/analyze` already has.
+# ---------------------------------------------------------------------------
+
+
+def test_follow_up_carry_through_emits_empty_stages_header(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Carry-through branch: session was previously refused, follow-up
+    rides the same refusal forward without touching the LLM. Header
+    must be present with an empty `stages` dict (truthful: zero work
+    done) and no `plan_llm` / `finalize_llm` keys.
+    """
+    monkeypatch.setattr(
+        api_module, "HttpChatClient", lambda config: _SequencedStubClient([])
+    )
+    # Seed a refused session with the same trap word as the analyze test.
+    csv = b"name,salary\nA,100\nB,200\n"
+    r = client.post(
+        "/v1/analyze",
+        files={"file": ("emp.csv", csv, "text/csv")},
+        data={"question": "Show purchase rate by race"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["is_refusal"] is True
+    parent_id = body["id"]
+
+    # Follow up against the refused parent — carry-through branch.
+    r2 = client.post(
+        "/v1/follow-up",
+        json={"parent_id": parent_id, "question": "再问一次"},
+    )
+    assert r2.status_code == 200, r2.text
+    raw = r2.headers.get("X-Stage-Timings")
+    assert raw, "carry-through must still emit X-Stage-Timings"
+    payload = json.loads(raw)
+    # Header shape stays identical to /v1/analyze (renderer joins on it).
+    assert {"started_wall", "total_s", "stages"}.issubset(payload.keys())
+    # `build_refusal_carry_through` never calls `_stage()` — stages is empty.
+    assert isinstance(payload["stages"], dict)
+    assert payload["stages"] == {}
+    # No LLM stages on the carry-through path.
+    assert "plan_llm" not in payload["stages"]
+    assert "finalize_llm" not in payload["stages"]
+
+
+def test_follow_up_happy_path_emits_full_header(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Happy path: a successful analyze → successful follow-up. The
+    second response must surface the same deterministic stage set the
+    /v1/analyze happy path does (profile + plan_llm + execute +
+    evidence + finalize_llm + render).
+    """
+    import app.api.follow_up as follow_up_module
+
+    # Seed a successful analyze.
+    stub = _SequencedStubClient([_plan_json(), _narrative_json()])
+    monkeypatch.setattr(api_module, "HttpChatClient", lambda config: stub)
+    r = client.post(
+        "/v1/analyze",
+        files={"file": ("sales.csv", _csv_bytes(), "text/csv")},
+        data={"question": "各地区的总销售额是多少？"},
+    )
+    assert r.status_code == 200, r.text
+    parent_id = r.json()["id"]
+
+    # Follow up — fresh stub for the second turn (plan + finalize again).
+    stub2 = _SequencedStubClient([_plan_json(), _narrative_json()])
+    monkeypatch.setattr(
+        follow_up_module, "HttpChatClient", lambda config: stub2
+    )
+    r2 = client.post(
+        "/v1/follow-up",
+        json={"parent_id": parent_id, "question": "哪个地区最高？"},
+    )
+    assert r2.status_code == 200, r2.text
+    raw = r2.headers.get("X-Stage-Timings")
+    assert raw, "follow-up happy path must emit X-Stage-Timings"
+    payload = json.loads(raw)
+    assert {"started_wall", "total_s", "stages"}.issubset(payload.keys())
+    expected_minimum = {
+        "profile",
+        "plan_llm",
+        "execute",
+        "evidence",
+        "finalize_llm",
+        "render",
+    }
+    assert expected_minimum.issubset(payload["stages"])
+    # `ops` populated by execute on the happy path.
+    assert "ops" in payload
+    assert isinstance(payload["ops"], list) and len(payload["ops"]) >= 1
+

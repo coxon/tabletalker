@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import math
 import sys
 import time
@@ -40,6 +41,8 @@ ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "datasets"
 CASES_FILE = ROOT / "cases.yaml"
 RUNS_DIR = ROOT / "runs"
+
+logger = logging.getLogger("eval.run")
 
 # Per-call timeout. The first analyze on a fresh dataset can hit ~60 s
 # because both planner and finalize make LLM round-trips; tail follow-ups
@@ -97,17 +100,34 @@ def _parse_stage_timings(response: httpx.Response) -> dict | None:
 
     Backends without the header (e.g. an older deploy) return None,
     which the renderer reads as "not measured for this turn" rather
-    than zero. Malformed JSON is logged-but-ignored — we don't want a
-    bad header to fail an otherwise-good run.
+    than zero. Malformed JSON is logged-and-ignored — a bad header
+    shouldn't fail an otherwise-good run, but silent swallowing hid
+    a real planner regression once (CodeRabbit #14 round-6). The
+    warning surfaces the offending payload so the next run can be
+    diagnosed without re-instrumenting.
     """
     raw = response.headers.get("X-Stage-Timings")
     if not raw:
         return None
     try:
         parsed = json.loads(raw)
-    except ValueError:
+    except ValueError as exc:
+        logger.warning(
+            "X-Stage-Timings parse failed for %s: %s (raw=%r)",
+            getattr(response, "url", "<unknown>"),
+            exc,
+            raw[:512],
+        )
         return None
-    return parsed if isinstance(parsed, dict) else None
+    if not isinstance(parsed, dict):
+        logger.warning(
+            "X-Stage-Timings is not a dict for %s: type=%s (raw=%r)",
+            getattr(response, "url", "<unknown>"),
+            type(parsed).__name__,
+            raw[:512],
+        )
+        return None
+    return parsed
 
 
 async def _post_analyze(
