@@ -127,7 +127,38 @@ def _parse_stage_timings(response: httpx.Response) -> dict | None:
             raw[:512],
         )
         return None
+    # Round-9 (CodeRabbit #14): tighten the seam earlier — reject any
+    # payload carrying NaN/±inf at parse time so downstream callers
+    # (`_stage_percentiles`, `_op_percentiles`, the JSON dump) can't
+    # re-introduce them. `json.loads` accepts non-standard tokens by
+    # default, so a misbehaving planner could otherwise leak Infinity
+    # into the cached run JSON.
+    if not _is_jsonable_finite(parsed):
+        logger.warning(
+            "X-Stage-Timings carries non-finite numeric values for %s "
+            "(raw=%r)",
+            getattr(response, "url", "<unknown>"),
+            raw[:512],
+        )
+        return None
     return parsed
+
+
+def _is_jsonable_finite(value: object) -> bool:
+    """Walk a JSON-decoded payload and return False on any non-finite
+    numeric leaf (NaN, +inf, -inf). Booleans are skipped — `bool` is a
+    subclass of `int` but `isinstance(True, bool)` short-circuits before
+    the numeric branch."""
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, (int, float)):
+        return math.isfinite(value)
+    if isinstance(value, dict):
+        return all(_is_jsonable_finite(v) for v in value.values())
+    if isinstance(value, (list, tuple)):
+        return all(_is_jsonable_finite(v) for v in value)
+    # str / None / other non-numeric → trivially finite.
+    return True
 
 
 async def _post_analyze(

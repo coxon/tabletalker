@@ -11,6 +11,8 @@ mounted from `app.api.*`:
   in PR #6.
 """
 
+import os
+
 from fastapi import FastAPI
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
@@ -29,10 +31,24 @@ app = FastAPI(title="TableTalker Backend", version=__version__)
 # uses `request.base_url` to construct `report_html_url`; if proxy
 # headers aren't honoured, deploys behind nginx/Caddy emit URLs
 # pointing at `localhost:8000` even when accessed via `https://...`.
-# `*` is the standard "trust whatever proxy is in front" setting; it's
-# safe here because the binding (`0.0.0.0:8000`) is meant to sit behind
-# trusted infra during the submission window.
-app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+#
+# Round-9 (CodeRabbit #14): the previous default of `trusted_hosts="*"`
+# blindly trusted X-Forwarded-* from any source — fine for the
+# tested-behind-trusted-infra submission window, but a foot-gun if the
+# image leaks onto a network where a hostile client can reach uvicorn
+# directly. The `APP_TRUSTED_PROXIES` env var (comma-separated) lets
+# operators pin exactly which sources are trusted, and we keep `"*"`
+# as the explicit default with a doc-string so the choice is visible
+# in the deploy log instead of buried in code. Empty string disables
+# proxy-header trust entirely (useful for local dev without a proxy).
+_trusted_proxies_env = os.environ.get("APP_TRUSTED_PROXIES", "*").strip()
+if _trusted_proxies_env in ("", "*"):
+    _trusted_hosts: str | list[str] = _trusted_proxies_env or []
+else:
+    _trusted_hosts = [
+        host.strip() for host in _trusted_proxies_env.split(",") if host.strip()
+    ]
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=_trusted_hosts)
 app.include_router(spreadsheet_router)
 app.include_router(analyze_router)
 app.include_router(follow_up_router)

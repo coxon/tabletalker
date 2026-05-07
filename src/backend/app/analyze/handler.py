@@ -76,6 +76,26 @@ def _public_base_url(override: str | None = None) -> str:
 
     The trailing slash is stripped so the caller can safely append
     `/reports/{id}.html` without doubling separators.
+
+    Round-9 (CodeRabbit #14) — design note on the no-filter stance:
+    CR asked us to reject overrides that resolve to `localhost` /
+    `127.0.0.1` / `testserver` (defence-in-depth against a hostile
+    proxy that downgrades the X-Forwarded-Host to a loopback name).
+    We deliberately keep the override path unfiltered:
+      a) Trust is gated upstream by `APP_TRUSTED_PROXIES` (see
+         `app/main.py`), so an unverified source can never set the
+         forwarded headers in the first place. Adding a second filter
+         here is a duplicate gate, not new defence.
+      b) `testserver` is the request origin from `TestClient`. Our
+         proxy-aware contract test depends on that origin to assert
+         the route emits `http://testserver/...` rather than the
+         (wrong) env-var fallback. Filtering testserver would mask
+         the bug the test is meant to catch.
+      c) Production deploys set `APP_PUBLIC_URL` AND a known proxy.
+         The "hostile proxy emits loopback" scenario doesn't match
+         our threat model.
+    The choice is documented here so future CR runs see the rationale
+    instead of re-flagging it as an oversight.
     """
 
     if override:
@@ -354,6 +374,12 @@ def _refusal_response(
         answer=None,
     )
     REPORT_STORE.put(request_id, rendered.html)
+    # Round-9 (CodeRabbit #14): emit the `render` stage on refusal
+    # paths too. Without this `X-Stage-Timings.total_s` underreports
+    # refused-request latency by the time spent rendering the
+    # refusal HTML, which makes refused-vs-successful timings
+    # incomparable in the eval renderer's per-stage table.
+    _stage("render")
     return AnalyzeResponse(
         id=request_id,
         report_html_url=report_url,
@@ -558,6 +584,13 @@ def build_refusal_carry_through(
         answer=None,
     )
     REPORT_STORE.put(request_id, rendered.html)
+    # Round-9 (CodeRabbit #14): same gap as `_refusal_response` — the
+    # carry-through path also rendered HTML without emitting a
+    # `render` stage mark, so the X-Stage-Timings header on
+    # carry-through follow-ups under-reported total_s. The follow-up
+    # route binds a stage timer for the same reason analyze does, so
+    # this `_stage("render")` will land in the bound dict.
+    _stage("render")
     return AnalyzeResponse(
         id=request_id,
         report_html_url=f"{_public_base_url(base_url)}/reports/{request_id}.html",

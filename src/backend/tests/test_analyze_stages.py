@@ -441,6 +441,10 @@ def test_analyze_refusal_still_emits_header(
     assert "profile" in payload["stages"]
     assert "plan_llm" not in payload["stages"]
     assert "finalize_llm" not in payload["stages"]
+    # Round-9 (CodeRabbit #14): refusal *does* render HTML
+    # (`docs/refusal-policy.md` §carry-through), so the `render`
+    # stage must surface so total_s isn't undercounted.
+    assert "render" in payload["stages"]
 
 
 # ---------------------------------------------------------------------------
@@ -489,9 +493,12 @@ def test_follow_up_carry_through_emits_empty_stages_header(
     payload = json.loads(raw)
     # Header shape stays identical to /v1/analyze (renderer joins on it).
     assert {"started_wall", "total_s", "stages"}.issubset(payload.keys())
-    # `build_refusal_carry_through` never calls `_stage()` — stages is empty.
+    # `build_refusal_carry_through` only emits the `render` stage —
+    # round-9 (CodeRabbit #14) added the `_stage("render")` mark so
+    # the carry-through follow-up's total_s is comparable to a
+    # successful turn's total_s.
     assert isinstance(payload["stages"], dict)
-    assert payload["stages"] == {}
+    assert set(payload["stages"]) == {"render"}
 
 
 def test_follow_up_happy_path_emits_full_header(
