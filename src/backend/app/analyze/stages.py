@@ -84,7 +84,7 @@ class StageTimer:
         self._last = self._t0
 
     def record(self, stage: str) -> None:
-        """Mark `stage` complete; duration = now − last_mark."""
+        """Mark `stage` complete; duration = now - last_mark."""
         now = time.perf_counter()
         # Last-write-wins: a re-recorded stage overwrites rather than
         # accumulating. The handler never re-records the same stage in
