@@ -333,7 +333,15 @@ def _plan_json() -> str:
 def _narrative_json() -> str:
     return json.dumps(
         {
-            "summary": "华东 300，华南 50，差距明显。" * 12,  # ≥300 chars
+            # 18 chars × 17 = 306 chars — needs to clear the README §7.1
+            # 300-char minimum so the narrative reads as a real paragraph
+            # (the eval renderer's `avg_summary_len_chars` cuts off below
+            # this). Round-2 had * 12 = 216 chars with a misleading
+            # "≥300 chars" comment; CodeRabbit #14 round-5 caught the
+            # discrepancy. The chart-pick assertion below is independent
+            # of this length, but the count keeps the fixture honest with
+            # what the production summary contract requires.
+            "summary": "华东 300，华南 50，差距明显。" * 17,  # 306 chars
             "title": "区域销售对比",
             "detail": "华东总额 300，华南总额 50。",
             "recommendations": ["加大华南投放"],
