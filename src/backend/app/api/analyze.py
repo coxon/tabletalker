@@ -36,7 +36,7 @@ from app.analyze.handler import (
 )
 from app.analyze.schema import AnalyzeResponse
 from app.analyze.stages import bind_stage_timer, serialize_header
-from app.limits import UPLOAD_MAX_BYTES
+from app.limits import UPLOAD_MAX_BYTES, UPLOAD_MAX_FILES, UPLOAD_MAX_TOTAL_BYTES
 from app.session import (
     SESSION_STORE,
     extract_cohorts,
@@ -56,6 +56,9 @@ async def analyze(
     file: UploadFile = File(...),  # noqa: B008 — FastAPI DI idiom
     question: str = Form(...),
     dataset: str | None = Form(default=None),
+    sampling_rate: float | None = Form(default=None),
+    sampling_note: str | None = Form(default=None),
+    extra_files: list[UploadFile] = File(default_factory=list),  # noqa: B008
 ) -> AnalyzeResponse:
     """Run a single-turn analysis. Returns the contract-shape JSON.
 
@@ -67,21 +70,110 @@ async def analyze(
     deploy behind a TLS-terminating proxy with `--proxy-headers` returns
     `https://demo.example.com/reports/<id>.html`) and falls back to
     `APP_PUBLIC_URL` from `.env` when the request URL isn't usable.
+
+    `sampling_rate` (optional, 0..1) declares that the uploaded file is a
+    downsample of the source. Required by README §3.3 雷7 / §7.2 #7
+    whenever the caller pre-sampled — every emitted Evidence row will
+    carry this rate so the auto-grader scales row_count expectations
+    instead of judging the analysis as fabricated. `sampling_note` is a
+    free-text companion (e.g. "25k rows of 100k, deterministic seed=42")
+    surfaced in the HTML report.
+
+    `extra_files` is the multi-file extension. The primary `file` is
+    always the first table the planner sees (and the default for refusal
+    + Evidence dataset/table); auxiliaries land in the same workspace
+    and the planner is told it can `join` them on shared keys. Eval
+    harnesses that only send a single `file` are unaffected — leaving
+    `extra_files` empty preserves the original single-table flow.
     """
 
     # Normalise once: surrounding whitespace shouldn't change the request
     # identity, the LLM prompt, or the evidence `dataset` label.
     clean_question = question.strip()
     clean_dataset = (dataset or "").strip()
+    clean_note = (sampling_note or "").strip() or None
     if not clean_question:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "question must not be empty")
+    if sampling_rate is not None and not (0.0 < sampling_rate <= 1.0):
+        # `0.0` would mean "analyzed nothing" — nonsense as evidence
+        # context. `>1.0` is impossible by definition. Reject early so
+        # the schema validator's pydantic error doesn't surface as a 500.
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "sampling_rate must be in (0, 1]",
+        )
 
     filename = _safe_filename(file.filename or "upload.csv")
     workspace = Path(tempfile.mkdtemp(prefix="tabletalker-analyze-"))
     keep_workspace = False
     try:
         target = workspace / filename
-        await _save_upload(file, target)
+        # Round-7 (CodeRabbit #15): the primary upload also gets the
+        # aggregate budget so a single-file request cannot exceed
+        # UPLOAD_MAX_TOTAL_BYTES even when that constant is tuned below
+        # the per-file `UPLOAD_MAX_BYTES`. Mid-stream enforcement, same
+        # as the auxiliary writes below.
+        total_bytes = await _save_upload(
+            file,
+            target,
+            remaining_total_budget=UPLOAD_MAX_TOTAL_BYTES,
+        )
+
+        # Auxiliary files: same per-file size cap as the primary, dedup
+        # on filename so a client uploading the same file twice doesn't
+        # silently overwrite. Empty `filename` slots from form data
+        # (e.g. some browsers POST a blank when no file picked) are
+        # filtered out so they don't become a stray `upload.csv`. We
+        # also enforce *aggregate* caps (count + total bytes) so a
+        # caller can't pin all of /tmp by uploading dozens of files
+        # each at the per-file ceiling. Cleanup-on-error is the `finally`.
+        non_blank_extras = [
+            extra for extra in extra_files if (extra.filename or "").strip()
+        ]
+        # +1 for the primary; comparing against `UPLOAD_MAX_FILES` (which
+        # already includes the primary) keeps the constant intuitive.
+        if 1 + len(non_blank_extras) > UPLOAD_MAX_FILES:
+            raise HTTPException(
+                status.HTTP_413_CONTENT_TOO_LARGE,
+                f"too many files; at most {UPLOAD_MAX_FILES} per request "
+                f"(including the primary upload)",
+            )
+        extra_filenames: list[str] = []
+        seen_names: set[str] = {filename}
+        for extra in non_blank_extras:
+            extra_name = _safe_filename(extra.filename or "")
+            # Deduplicate against the primary AND prior auxiliaries. We
+            # rename collisions with a numeric suffix so the planner
+            # still sees both files distinctly.
+            unique_name = extra_name
+            counter = 1
+            while unique_name in seen_names:
+                stem = Path(extra_name).stem
+                suffix = Path(extra_name).suffix
+                unique_name = f"{stem}__{counter}{suffix}"
+                counter += 1
+            seen_names.add(unique_name)
+            # Pass the *remaining* budget so the streaming write trips
+            # 413 mid-chunk, not after writing 60 MiB to disk first.
+            remaining = UPLOAD_MAX_TOTAL_BYTES - total_bytes
+            total_bytes += await _save_upload(
+                extra,
+                workspace / unique_name,
+                remaining_total_budget=remaining,
+            )
+            if total_bytes > UPLOAD_MAX_TOTAL_BYTES:
+                # Defence-in-depth: the streaming check above is the
+                # primary gate (it bails after one chunk past the
+                # ceiling), but a future refactor that drops the budget
+                # arg would silently bypass it. Keep this check as a
+                # backstop. The `finally` rmtree's the workspace
+                # including any partial write.
+                raise HTTPException(
+                    status.HTTP_413_CONTENT_TOO_LARGE,
+                    f"combined upload size exceeds "
+                    f"{UPLOAD_MAX_TOTAL_BYTES} bytes",
+                )
+            extra_filenames.append(unique_name)
 
         try:
             config = LLMConfig.from_env()
@@ -103,6 +195,9 @@ async def analyze(
             dataset=effective_dataset,
             question=clean_question,
             base_url=str(request.base_url),
+            sampling_rate=sampling_rate,
+            sampling_note=clean_note,
+            extra_filenames=tuple(extra_filenames),
         )
         try:
             with bind_stage_timer() as timer:
@@ -125,6 +220,14 @@ async def analyze(
             dataset=effective_dataset,
             original_question=clean_question,
             cohorts=cohorts,
+            sampling_rate=sampling_rate,
+            sampling_note=clean_note,
+            # Preserve the multi-file parent shape so follow-up turns
+            # rebuild the same AnalyzeRequest instead of silently
+            # dropping to single-file (CodeRabbit #17 round-15
+            # Critical: joins referencing a secondary table vanish
+            # on the second turn without this).
+            extra_filenames=tuple(extra_filenames),
         )
         SESSION_STORE.put(session)
         # Workspace ownership has transferred to the session store — do
@@ -149,7 +252,29 @@ def _safe_filename(name: str) -> str:
     return base
 
 
-async def _save_upload(file: UploadFile, target: Path) -> None:
+async def _save_upload(
+    file: UploadFile,
+    target: Path,
+    *,
+    remaining_total_budget: int | None = None,
+) -> int:
+    """Stream the upload to `target`, capped at `UPLOAD_MAX_BYTES`.
+
+    Returns bytes written so callers can track an aggregate footprint
+    (the route enforces `UPLOAD_MAX_TOTAL_BYTES` across primary + all
+    auxiliaries combined). The per-file cap is checked here so the
+    upload short-circuits before consuming all of `/tmp` even when the
+    aggregate logic isn't tracking yet.
+
+    `remaining_total_budget` (CodeRabbit #15 round-2) lets callers
+    enforce the aggregate ceiling *during* the stream, not after the
+    whole file has hit disk. Without this, a 50 MiB primary + a 60 MiB
+    auxiliary could land 110 MiB in /tmp before the post-write check
+    raises 413 on iteration 2 — the malicious caller has already
+    achieved most of the disk-pressure they wanted. Pass it None for
+    "no aggregate gating" (the primary file path) or the remaining
+    bytes-from-budget for auxiliaries.
+    """
     bytes_written = 0
     with target.open("wb") as fh:
         while chunk := await file.read(64 * 1024):
@@ -159,4 +284,14 @@ async def _save_upload(file: UploadFile, target: Path) -> None:
                     status.HTTP_413_CONTENT_TOO_LARGE,
                     f"upload exceeds {UPLOAD_MAX_BYTES} bytes",
                 )
+            if (
+                remaining_total_budget is not None
+                and bytes_written > remaining_total_budget
+            ):
+                raise HTTPException(
+                    status.HTTP_413_CONTENT_TOO_LARGE,
+                    f"combined upload size exceeds "
+                    f"{UPLOAD_MAX_TOTAL_BYTES} bytes",
+                )
             fh.write(chunk)
+    return bytes_written

@@ -323,3 +323,185 @@ def test_follow_up_returns_503_when_llm_not_configured(
         json={"parent_id": parent["id"], "question": "再看一下"},
     )
     assert resp.status_code == 503
+
+
+# ---------------------------------------------------------------------------
+# Sampling inheritance (README §3.3 雷7 / §7.2 #7)
+# ---------------------------------------------------------------------------
+
+
+def test_follow_up_inherits_sampling_from_parent_session(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A follow-up must stamp the parent's `sampling_rate` / `sampling_note`
+    on its own Evidence rows.
+
+    Why: sampling is a property of the *file* on disk, not of the turn.
+    The same workspace serves every follow-up. If the rate doesn't carry
+    through, the auto-grader compares the follow-up's row counts to the
+    full source and judges every follow-up Evidence as fabricated —
+    breaking session-level scoring entirely.
+    """
+    stub = _SequencedStubClient(
+        [
+            _plan_json(),
+            _narrative_json(),
+            _plan_json(),
+            _narrative_json(title="华南增速最快"),
+        ]
+    )
+    monkeypatch.setattr(analyze_module, "HttpChatClient", lambda config: stub)
+    monkeypatch.setattr(follow_up_module, "HttpChatClient", lambda config: stub)
+
+    # Parent declares sampling — bypass _seed_parent so we can pass form
+    # fields the helper doesn't know about.
+    parent_resp = client.post(
+        "/v1/analyze",
+        files={"file": ("sales.csv", _csv_bytes(), "text/csv")},
+        data={
+            "question": "各地区的总销售额是多少？",
+            "dataset": "regional-sales",
+            "sampling_rate": "0.25",
+            "sampling_note": "25k of 100k rows; deterministic seed=42",
+        },
+    )
+    assert parent_resp.status_code == 200, parent_resp.text
+    parent_id = parent_resp.json()["id"]
+
+    follow_resp = client.post(
+        "/v1/follow-up",
+        json={"parent_id": parent_id, "question": "他们的增速呢？"},
+    )
+    assert follow_resp.status_code == 200, follow_resp.text
+    follow_body = follow_resp.json()
+    assert follow_body["findings"], "happy-path follow-up should yield findings"
+    for finding in follow_body["findings"]:
+        # Round-9 (CodeRabbit #15): without this guard the inner loop
+        # silently passes when the planner happens to emit an empty
+        # evidence list — making the sampling-inheritance assertion
+        # vacuous. We're testing that *evidence rows* inherit the
+        # sampling fields, so each finding must actually carry rows.
+        assert finding["evidence"], (
+            f"finding {finding.get('id', '<no-id>')!r} should include "
+            f"evidence rows so the sampling-inheritance assertion is "
+            f"non-vacuous"
+        )
+        for row in finding["evidence"]:
+            assert row["sampling_rate"] == 0.25
+            assert row["sampling_note"] == "25k of 100k rows; deterministic seed=42"
+
+
+def _regions_csv_bytes() -> bytes:
+    """Companion fixture used by the multi-file follow-up test."""
+    return (
+        b"region,region_name\n"
+        b"\xe5\x8d\x8e\xe4\xb8\x9c,East China\n"
+        b"\xe5\x8d\x8e\xe5\x8d\x97,South China\n"
+        b"\xe5\x8d\x8e\xe5\x8c\x97,North China\n"
+    )
+
+
+def _multi_file_plan_json() -> str:
+    """Plan that references BOTH tables — the follow-up must still be
+    able to execute this, which requires `extra_filenames` to survive
+    in the session.
+    """
+    return json.dumps(
+        {
+            "ops": [
+                {"kind": "load_csv", "out": "sales", "path": "sales.csv"},
+                {"kind": "load_csv", "out": "regions", "path": "regions.csv"},
+                {
+                    "kind": "join",
+                    "out": "joined",
+                    "left": "sales",
+                    "right": "regions",
+                    "on": ["region"],
+                    "how": "inner",
+                },
+                {
+                    "kind": "group_by",
+                    "out": "g",
+                    "src": "joined",
+                    "by": ["region_name"],
+                },
+                {
+                    "kind": "aggregate",
+                    "out": "totals",
+                    "src": "g",
+                    "aggs": [{"column": "amount", "fn": "sum", "as": "total"}],
+                },
+                {"kind": "to_table", "out": "answer", "src": "totals"},
+            ],
+            "answer": "answer",
+        }
+    )
+
+
+def test_follow_up_preserves_extra_filenames_from_multi_file_parent(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Multi-file parent turns must not degrade to single-file on follow-up.
+
+    Round-15 (CodeRabbit #17 Critical): `session_from_response()` used to
+    drop the auxiliary filenames, so the follow-up handler reconstructed
+    an `AnalyzeRequest` with only the primary table. Any plan that
+    referenced a secondary table (the common `join` case for 03_tmdb /
+    04_telecom_churn cases in eval) would then fail with
+    ``load_csv: file not found: regions.csv`` on the second turn.
+
+    Regression shape:
+      1. Parent: upload sales.csv + regions.csv, planner emits a
+         two-file join plan → happy path.
+      2. Follow-up: same two-file plan → must still succeed. If
+         `extra_filenames` didn't survive on the session, the follow-up
+         would 422 with a missing-file error because regions.csv isn't
+         exposed to the executor anymore.
+    """
+    stub = _SequencedStubClient(
+        [
+            _multi_file_plan_json(),
+            _narrative_json(title="华东领先", summary="华东 300，华南 50，差距明显。"),
+            _multi_file_plan_json(),
+            _narrative_json(title="增速对比", summary="华东增速高于其余地区。"),
+        ]
+    )
+    monkeypatch.setattr(analyze_module, "HttpChatClient", lambda config: stub)
+    monkeypatch.setattr(follow_up_module, "HttpChatClient", lambda config: stub)
+
+    parent_resp = client.post(
+        "/v1/analyze",
+        files=[
+            ("file", ("sales.csv", _csv_bytes(), "text/csv")),
+            ("extra_files", ("regions.csv", _regions_csv_bytes(), "text/csv")),
+        ],
+        data={"question": "各地区的总销售额是多少？", "dataset": "regional-sales"},
+    )
+    assert parent_resp.status_code == 200, parent_resp.text
+    parent_id = parent_resp.json()["id"]
+
+    # Verify the session actually records the auxiliary filename —
+    # failing here pinpoints the session-side regression before the
+    # follow-up even runs.
+    session = SESSION_STORE.get(parent_id)
+    assert session is not None
+    assert "regions.csv" in session.extra_filenames, (
+        f"session.extra_filenames must include regions.csv; "
+        f"got {session.extra_filenames!r}"
+    )
+
+    follow_resp = client.post(
+        "/v1/follow-up",
+        json={"parent_id": parent_id, "question": "他们的增速呢？"},
+    )
+    assert follow_resp.status_code == 200, (
+        f"follow-up must succeed on a multi-file parent — a 422 here "
+        f"means regions.csv was not forwarded to the follow-up's executor. "
+        f"Body: {follow_resp.text}"
+    )
+    follow_body = follow_resp.json()
+    assert follow_body["is_refusal"] is False
+    # Findings must be present — if the join silently short-circuited
+    # to the single-file path, the grouped aggregate on
+    # `region_name` would have failed.
+    assert follow_body["findings"]

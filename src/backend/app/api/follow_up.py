@@ -165,6 +165,18 @@ async def follow_up(
         request_id=request_id,
         is_followup=True,
         base_url=str(request.base_url),
+        # Multi-file parent turns persist their auxiliary filenames on
+        # the session so the follow-up rebuilds the SAME table set;
+        # without this the follow-up silently degrades to single-file
+        # and any join referencing a secondary table vanishes.
+        # (CodeRabbit #17 round-15 Critical.)
+        extra_filenames=session.extra_filenames,
+        # Sampling decisions are session-scoped (the file on disk doesn't
+        # change between turns); inherit them so every follow-up emits
+        # Evidence with the same disclosure as its parent — required by
+        # README §3.3 雷7 / §7.2 #7.
+        sampling_rate=session.sampling_rate,
+        sampling_note=session.sampling_note,
     )
     try:
         with bind_stage_timer() as timer:

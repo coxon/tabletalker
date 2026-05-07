@@ -40,8 +40,9 @@ class StubClient:
 def _request() -> PlanRequest:
     return PlanRequest(
         question="按地区合计销售额",
-        table_preview=pd.DataFrame({"region": ["华东"], "amount": [100]}),
-        workspace_filename="sales.csv",
+        tables=[
+            ("sales.csv", pd.DataFrame({"region": ["华东"], "amount": [100]}))
+        ],
     )
 
 

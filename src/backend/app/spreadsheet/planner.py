@@ -34,13 +34,31 @@ MAX_PLAN_RETRIES = 2
 @dataclass
 class PlanRequest:
     question: str
-    table_preview: pd.DataFrame  # used to show the LLM the available columns
-    workspace_filename: str  # the file the LLM should reference in `load_csv`/`load_excel`
+    # Tables visible in the workspace, in upload order. The first entry is
+    # the "primary" table (used by the refusal heuristic and as the default
+    # Evidence.table for downstream rows that don't carry per-table
+    # provenance). Subsequent entries enable cross-table joins — the
+    # planner is expected to emit one `load_csv` / `load_excel` per table
+    # and a `join` op stitching them together.
+    #
+    # Each entry is `(filename, preview_df)`. `preview_df` is the first 5
+    # rows already read; we serialise it into the user prompt so the LLM
+    # sees the actual columns without having to guess from the filename.
+    tables: list[tuple[str, pd.DataFrame]]
     # Optional prelude — the follow-up route prepends a session prompt
     # (parent question, named cohorts, prior findings) so the LLM can
     # resolve pronouns without us having to graft session awareness into
     # the planner core. `None` keeps single-turn analyze unchanged.
     prelude: str | None = None
+
+    @property
+    def primary_filename(self) -> str:
+        """Convenience accessor for callers that still want a single file
+        (refusal heuristic, default Evidence.table). The first uploaded
+        file is the primary; subsequent files are auxiliary join sources."""
+        if not self.tables:
+            raise ValueError("PlanRequest.tables must contain at least one entry")
+        return self.tables[0][0]
 
 
 class PlannerError(Exception):
@@ -96,17 +114,43 @@ Return ONLY the JSON Plan. No prose, no markdown fences. Start with `{`.
 
 
 def _user_message(req: PlanRequest) -> str:
-    preview = req.table_preview.head(5).to_csv(index=False)
-    # `columns` may be non-string (int, tuple from MultiIndex flattening, etc.)
-    # — coerce defensively so the prompt never crashes on weird CSV headers.
-    columns = ", ".join(str(c) for c in req.table_preview.columns)
-    return (
-        f"File available in the workspace: {req.workspace_filename}\n"
-        f"Columns: {columns}\n"
-        f"First 5 rows (CSV):\n{preview}\n"
+    """Render the per-request user message: every table's columns + 5-row
+    preview, then the user's question.
+
+    Single-table requests render compactly (header + columns + preview);
+    multi-table requests prepend a "you have N tables, choose loads + joins"
+    sentence so the LLM understands it's allowed (and expected) to emit
+    multiple `load_*` ops and stitch them with `join`.
+    """
+
+    if not req.tables:
+        raise ValueError("PlanRequest.tables must contain at least one entry")
+
+    chunks: list[str] = []
+    if len(req.tables) > 1:
+        names = ", ".join(name for name, _ in req.tables)
+        chunks.append(
+            f"{len(req.tables)} files are available in the workspace: {names}.\n"
+            f"Emit one `load_csv` or `load_excel` per file, then `join` "
+            f"them on shared keys before further analysis if the question "
+            f"requires data from more than one file."
+        )
+    for name, preview in req.tables:
+        # `columns` may be non-string (int, tuple from MultiIndex flattening,
+        # etc.) — coerce defensively so the prompt never crashes on weird
+        # CSV headers.
+        columns = ", ".join(str(c) for c in preview.columns)
+        preview_csv = preview.head(5).to_csv(index=False)
+        chunks.append(
+            f"--- File: {name} ---\n"
+            f"Columns: {columns}\n"
+            f"First 5 rows (CSV):\n{preview_csv}"
+        )
+    chunks.append(
         f"User question: {req.question}\n"
         f"Emit the JSON Plan now."
     )
+    return "\n".join(chunks)
 
 
 async def make_plan(client: ChatClient, req: PlanRequest) -> Plan:

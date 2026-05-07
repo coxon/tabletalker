@@ -62,6 +62,29 @@ class Evidence(_StrictModel):
     row_count: int | None = Field(
         default=None, description="Post-filter row count. Required for any sampled analysis."
     )
+    sampling_rate: float | None = Field(
+        default=None,
+        gt=0.0,
+        le=1.0,
+        description=(
+            "Fraction of the source rows actually analyzed (1.0 = full data, "
+            "0.25 = 25% sample). Required by README §3.3 雷7 / §7.2 #7 whenever "
+            "the system did not run on the full dataset — without it, the "
+            "auto-grader compares row_count to the full source and judges "
+            "the evidence as fabricated."
+        ),
+    )
+    sampling_note: str | None = Field(
+        default=None,
+        max_length=500,
+        description=(
+            "Human-readable note explaining the sampling, e.g. "
+            "'Sampled 25k of 100k rows for tractability; deterministic "
+            "seed=42'. Surfaced verbatim in the HTML report. Capped at "
+            "500 chars so a buggy planner can't bloat the response or "
+            "the rendered report (CodeRabbit #15 round-2)."
+        ),
+    )
 
 
 class Finding(_StrictModel):

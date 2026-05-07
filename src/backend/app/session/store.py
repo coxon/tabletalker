@@ -88,6 +88,23 @@ class Session:
     cohorts: list[CohortDef] = field(default_factory=list)
     chart_anchors: list[str] = field(default_factory=list)
     refused: bool = False
+    # Sampling declared on the parent request; persisted here so every
+    # follow-up emits Evidence with the same sampling_rate / note. The
+    # uploaded file on disk doesn't change between turns, so sampling is
+    # session-scoped — re-prompting the user for it each turn would be
+    # both annoying and an avenue for inconsistent grading. Required by
+    # README §3.3 雷7 / §7.2 #7 whenever the source was downsampled.
+    sampling_rate: float | None = None
+    sampling_note: str | None = None
+    # Auxiliary filenames from the multi-file parent turn (the primary
+    # file is `filename`; these are the additional tables saved
+    # alongside it in `workspace_dir`). Persisted so a follow-up can
+    # rebuild the same `AnalyzeRequest` — without this, multi-file
+    # conversations degrade to single-file on the second turn, which
+    # silently breaks joins that reference a secondary table. Empty
+    # tuple = single-file parent turn (the common case), so defaulting
+    # is safe for older sessions in the store.
+    extra_filenames: tuple[str, ...] = ()
     turns: list[Turn] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
     last_used_at: float = field(default_factory=time.time)
@@ -458,12 +475,27 @@ def session_from_response(
     dataset: str,
     original_question: str,
     cohorts: list[CohortDef],
+    sampling_rate: float | None = None,
+    sampling_note: str | None = None,
+    extra_filenames: tuple[str, ...] = (),
 ) -> Session:
     """Construct a `Session` from a finished parent analyze response.
 
     Centralised so the route doesn't have to know which AnalyzeResponse
     fields feed which Session fields — keeping that mapping here means
     contract drift breaks one place, not three.
+
+    `sampling_rate` / `sampling_note` are propagated from the parent
+    request so follow-ups can stamp the same disclosure on their own
+    Evidence rows. The defaults of None preserve backward compatibility
+    for callers that don't sample.
+
+    `extra_filenames` carries the auxiliary tables from a multi-file
+    parent turn so follow-up requests can rebuild the same multi-file
+    `AnalyzeRequest`. The default of `()` preserves the single-file
+    shape for callers that don't use multi-file analysis (e.g. most of
+    the existing tests) and for in-flight sessions created before
+    multi-file support landed (None / missing → empty tuple).
     """
 
     chart_anchors = [c.html_anchor for c in response.charts]
@@ -478,6 +510,9 @@ def session_from_response(
         cohorts=list(cohorts),
         chart_anchors=chart_anchors,
         refused=response.is_refusal,
+        sampling_rate=sampling_rate,
+        sampling_note=sampling_note,
+        extra_filenames=extra_filenames,
         turns=[
             Turn(
                 index=0,

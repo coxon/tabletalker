@@ -52,10 +52,20 @@ class EvidenceContext:
     name under `data/public_datasets/`. For free-form uploads (which is
     what `/v1/analyze` accepts) we use the supplied display name — the
     handler decides what that is.
+
+    `sampling_rate` and `sampling_note` are optional and stamped on
+    every emitted Evidence row. README §3.3 雷7 / §7.2 #7 makes this
+    mandatory whenever the system ran on a downsample — without it the
+    auto-grader compares post-filter row_count to the full source and
+    judges every Evidence as fabricated. We propagate at the context
+    level (not per-Evidence) because a single analyze request runs
+    against one DataFrame, so the sampling decision is per-request.
     """
 
     dataset: str
     table: str
+    sampling_rate: float | None = None
+    sampling_note: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -96,6 +106,8 @@ def build_evidence(
             aggregation="count(*)",
             value=filter_total,
             row_count=filter_total,
+            sampling_rate=context.sampling_rate,
+            sampling_note=context.sampling_note,
         )
     )
 
@@ -123,6 +135,8 @@ def build_evidence(
                     aggregation=f"{spec.fn}({spec.column})",
                     value=_jsonable(value),
                     row_count=None,  # per-group row count not currently tracked
+                    sampling_rate=context.sampling_rate,
+                    sampling_note=context.sampling_note,
                 )
             )
 
