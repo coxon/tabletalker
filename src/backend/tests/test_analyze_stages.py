@@ -124,6 +124,73 @@ def test_record_ops_omitted_when_empty() -> None:
     assert "ops" not in payload
 
 
+def test_record_ops_sanitizes_malformed_entries() -> None:
+    """Telemetry must never break the response (CodeRabbit #14 round-2).
+
+    `record_ops` accepts whatever the executor handed us. A plan with
+    one buggy op (e.g. `None` smuggled in by a future op kind, a non-
+    numeric `ms`, or a negative timing from clock skew) must not 500
+    the request. The contract:
+      - Non-dict entries are silently skipped.
+      - Non-numeric / negative `ms` is coerced to `0.0`.
+      - The header still serializes cleanly.
+    """
+    with bind_stage_timer() as t:
+        record("execute")
+        t.record_ops(
+            [
+                # Valid baseline
+                {"kind": "load_csv", "out": "raw", "ms": 1.5},
+                # Garbage that would normally crash `entry.get(...)`
+                None,  # type: ignore[list-item]
+                [1, 2, 3],  # type: ignore[list-item]
+                "bad",  # type: ignore[list-item]
+                # Non-numeric `ms` → coerced to 0.0 by `_safe_float`
+                {"kind": "group_by", "out": "g", "ms": "N/A"},
+                # Negative `ms` → clamped to 0.0
+                {"kind": "aggregate", "out": "totals", "ms": -5.0},
+            ]
+        )
+    payload = json.loads(serialize_header(t))
+    assert "ops" in payload
+    # 3 valid dicts survive; the 3 non-dict entries are dropped.
+    assert len(payload["ops"]) == 3
+    assert payload["ops"][0]["ms"] == 1.5
+    # Non-numeric and negative both clamp to 0.0 — the same floor as
+    # `record()` applies to stage durations.
+    assert payload["ops"][1]["ms"] == 0.0
+    assert payload["ops"][2]["ms"] == 0.0
+
+
+def test_record_ops_caps_count_and_field_length() -> None:
+    """Header serialisation is bounded: at most MAX_HEADER_OPS entries
+    survive, and each `kind`/`out` is truncated to MAX_OP_FIELD_CHARS.
+
+    Without these caps a planner emitting many ops or absurdly long
+    opaque ids could blow past the proxy's response-header ceiling.
+    """
+    from app.analyze.stages import MAX_HEADER_OPS, MAX_OP_FIELD_CHARS
+
+    long_name = "x" * (MAX_OP_FIELD_CHARS + 32)
+    entries: list[dict[str, object]] = [
+        {"kind": long_name, "out": long_name, "ms": 0.1}
+        for _ in range(MAX_HEADER_OPS + 25)
+    ]
+    timer = StageTimer()
+    timer.record_ops(entries)
+    assert len(timer.ops) == MAX_HEADER_OPS
+    # Both string fields are truncated to the configured ceiling.
+    assert all(
+        isinstance(op["kind"], str) and len(op["kind"]) == MAX_OP_FIELD_CHARS
+        for op in timer.ops
+    )
+    assert all(
+        isinstance(op["out"], str) and len(op["out"]) == MAX_OP_FIELD_CHARS
+        for op in timer.ops
+    )
+
+
+
 def test_concurrent_binds_are_isolated() -> None:
     # Two coroutines holding their own StageTimer must not mix their
     # records. `contextvars` is the mechanism; this test pins the

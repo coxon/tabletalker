@@ -52,6 +52,16 @@ STAGE_ORDER: tuple[str, ...] = (
 )
 
 
+# Header-size guards. `X-Stage-Timings` rides on the response and most
+# proxies enforce a few-KiB ceiling on response headers; with `kind`/`out`
+# truncated to 64 chars apiece, 50 ops fits comfortably in ~5 KiB. The
+# diagnostic value flattens out long before the cap — if a plan really
+# has more than 50 ops the long tail is unlikely to be the slow op.
+MAX_HEADER_OPS = 50
+MAX_OP_FIELD_CHARS = 64
+
+
+
 def _safe_float(value: object) -> float:
     """Best-effort float coercion that never raises.
 
@@ -122,15 +132,25 @@ class StageTimer:
         """
         # Defensive copy + clamp shape so a buggy caller can't smuggle
         # surprise keys into the response header (which is parsed by the
-        # eval renderer). We also clamp `ms` to the same `max(0.0, ...)`
-        # floor that `record()` applies to stage durations — a negative
-        # value here would skew the eval P50/P95 tables silently.
+        # eval renderer). Three layers of hardening:
+        #   - Skip non-dict entries (`None`, lists, scalars) so a single
+        #     malformed item can't `AttributeError` and 500 the request.
+        #     Telemetry must never break the response.
+        #   - Truncate `kind`/`out` to MAX_OP_FIELD_CHARS so a planner
+        #     that ever emits absurdly long opaque ids can't blow past
+        #     the proxy's response-header cap.
+        #   - Cap the slice at MAX_HEADER_OPS for the same reason; the
+        #     diagnostic value of the trailing entries is low.
+        # `ms` is clamped via `max(0.0, ...)` to mirror `record()`'s
+        # floor — a negative wall-time would skew eval P50/P95 silently.
         clean: list[dict[str, object]] = []
-        for entry in op_entries:
+        for entry in op_entries[:MAX_HEADER_OPS]:
+            if not isinstance(entry, dict):
+                continue
             clean.append(
                 {
-                    "kind": str(entry.get("kind", "")),
-                    "out": str(entry.get("out", "")),
+                    "kind": str(entry.get("kind", ""))[:MAX_OP_FIELD_CHARS],
+                    "out": str(entry.get("out", ""))[:MAX_OP_FIELD_CHARS],
                     "ms": round(max(0.0, _safe_float(entry.get("ms"))), 3),
                 }
             )
