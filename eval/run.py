@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import math
 import sys
 import time
@@ -40,6 +41,8 @@ ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "datasets"
 CASES_FILE = ROOT / "cases.yaml"
 RUNS_DIR = ROOT / "runs"
+
+logger = logging.getLogger("eval.run")
 
 # Per-call timeout. The first analyze on a fresh dataset can hit ~60 s
 # because both planner and finalize make LLM round-trips; tail follow-ups
@@ -59,6 +62,10 @@ class TurnResult:
     latency_s: float
     body: dict | None = None
     error: str | None = None
+    # Per-stage durations from the backend's `X-Stage-Timings` header,
+    # if present. Missing or malformed → None (renderer treats as
+    # "not measured"). See `app.analyze.stages` on the server.
+    stage_timings: dict | None = None
 
     @property
     def ok(self) -> bool:
@@ -86,6 +93,82 @@ class RunSummary:
 # ---------------------------------------------------------------------------
 # HTTP helpers
 # ---------------------------------------------------------------------------
+
+
+def _parse_stage_timings(response: httpx.Response) -> dict | None:
+    """Decode the `X-Stage-Timings` header into a JSON dict.
+
+    Backends without the header (e.g. an older deploy) return None,
+    which the renderer reads as "not measured for this turn" rather
+    than zero. Malformed JSON is logged-and-ignored — a bad header
+    shouldn't fail an otherwise-good run, but silent swallowing hid
+    a real planner regression once (CodeRabbit #14 round-6). The
+    warning surfaces the offending payload so the next run can be
+    diagnosed without re-instrumenting.
+    """
+    raw = response.headers.get("X-Stage-Timings")
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except ValueError as exc:
+        logger.warning(
+            "X-Stage-Timings parse failed for %s: %s (raw=%r)",
+            getattr(response, "url", "<unknown>"),
+            exc,
+            raw[:512],
+        )
+        return None
+    if not isinstance(parsed, dict):
+        logger.warning(
+            "X-Stage-Timings is not a dict for %s: type=%s (raw=%r)",
+            getattr(response, "url", "<unknown>"),
+            type(parsed).__name__,
+            raw[:512],
+        )
+        return None
+    # Round-9 (CodeRabbit #14): tighten the seam earlier — reject any
+    # payload carrying NaN/±inf at parse time so downstream callers
+    # (`_stage_percentiles`, `_op_percentiles`, the JSON dump) can't
+    # re-introduce them. `json.loads` accepts non-standard tokens by
+    # default, so a misbehaving planner could otherwise leak Infinity
+    # into the cached run JSON.
+    if not _is_jsonable_finite(parsed):
+        logger.warning(
+            "X-Stage-Timings carries non-finite numeric values for %s "
+            "(raw=%r)",
+            getattr(response, "url", "<unknown>"),
+            raw[:512],
+        )
+        return None
+    return parsed
+
+
+def _is_jsonable_finite(value: object) -> bool:
+    """Walk a JSON-decoded payload and return False on any non-finite
+    numeric leaf (NaN, +inf, -inf) **or** any boolean leaf in a numeric
+    position.
+
+    Booleans are *rejected* rather than skipped. Round-11 (CodeRabbit
+    #14): a malformed header like
+    ``{"stages":{"execute":true},"ops":[{"kind":"load_csv","ms":false}]}``
+    would otherwise pass the finite-only filter — `bool` is a subclass
+    of `int` and `True == 1` arithmetically. Treating those as valid
+    timing values silently turns a typo into "1ms" / "0ms" entries in
+    downstream stats. Failing the validation makes the malformed payload
+    fall back to the `None` branch in `_parse_stage_timings`, same as
+    NaN/Infinity.
+    """
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)):
+        return math.isfinite(value)
+    if isinstance(value, dict):
+        return all(_is_jsonable_finite(v) for v in value.values())
+    if isinstance(value, (list, tuple)):
+        return all(_is_jsonable_finite(v) for v in value)
+    # str / None / other non-numeric → trivially finite.
+    return True
 
 
 async def _post_analyze(
@@ -119,6 +202,9 @@ async def _post_analyze(
         error=None
         if response.status_code == 200
         else (response.text[:500] if body is None else None),
+        stage_timings=_parse_stage_timings(response)
+        if response.status_code == 200
+        else None,
     )
 
 
@@ -150,6 +236,9 @@ async def _post_followup(
         error=None
         if response.status_code == 200
         else (response.text[:500] if body is None else None),
+        stage_timings=_parse_stage_timings(response)
+        if response.status_code == 200
+        else None,
     )
 
 
@@ -310,6 +399,18 @@ def compute_metrics(results: Iterable[CaseResult]) -> dict:
             report_ok += 1
     report_render_rate = report_ok / len(main_oks) if main_oks else 0.0
 
+    # Per-stage P50/P95 across all 200-OK main turns. The backend
+    # publishes these in `X-Stage-Timings`; missing turns (older deploys
+    # without the header) are skipped so the percentile is over what we
+    # actually measured.
+    stage_p50, stage_p95, stage_n = _stage_percentiles(main_oks)
+
+    # Per-op-kind aggregates pulled from the same header's `ops` list.
+    # Useful for "in complex plans, which op is the slow one?" — for our
+    # current op set the answer is always "neither, ops are < 20 ms" but
+    # that's exactly what we want to confirm with measurement.
+    op_p50, op_p95, op_n = _op_percentiles(main_oks)
+
     return {
         "datasets_total": main_total,
         "main_success_count": len(main_oks),
@@ -328,7 +429,127 @@ def compute_metrics(results: Iterable[CaseResult]) -> dict:
         "followup_success_rate": followup_success,
         "session_carry_rate": session_carry,
         "report_render_rate": report_render_rate,
+        # Per-stage timings (seconds). One key per stage from
+        # `app.analyze.stages.STAGE_ORDER`. Renderer matches on the
+        # stage name; missing stages are skipped in the table.
+        "stage_p50_s": stage_p50,
+        "stage_p95_s": stage_p95,
+        "stage_sample_n": stage_n,
+        # Per-op-kind timings (milliseconds). Aggregated across every op
+        # invocation in every successful main turn — a 6-op plan
+        # contributes 6 entries to whichever kinds it used.
+        "op_p50_ms": op_p50,
+        "op_p95_ms": op_p95,
+        "op_sample_n": op_n,
     }
+
+
+# Stage names mirror `app.analyze.stages.STAGE_ORDER` on the server. We
+# duplicate them here rather than importing because the eval runner is a
+# standalone client — keeping it import-free of the backend means it can
+# run against a remote deploy without the source tree on the local box.
+_STAGE_ORDER: tuple[str, ...] = (
+    "profile",
+    "preview_plan_req",
+    "plan_llm",
+    "execute",
+    "evidence",
+    "finalize_llm",
+    "render",
+)
+
+
+def _stage_percentiles(
+    main_oks: list[CaseResult],
+) -> tuple[dict[str, float], dict[str, float], dict[str, int]]:
+    """Compute P50/P95 per stage across successful main turns.
+
+    Returns three parallel dicts keyed by stage name:
+      - `stage_p50_s`: median duration in seconds
+      - `stage_p95_s`: p95 duration (nearest-rank, ceil-based)
+      - `stage_sample_n`: how many turns contributed (so the renderer
+        can show "未实现" when N == 0 for an upgraded stage)
+
+    A stage is included only when at least one turn reported it. We
+    don't fabricate zeros for missing stages — that would let an
+    older-deploy run silently inflate P50 toward zero.
+    """
+    p50: dict[str, float] = {}
+    p95: dict[str, float] = {}
+    sample_n: dict[str, int] = {}
+    for stage in _STAGE_ORDER:
+        samples: list[float] = []
+        for r in main_oks:
+            timings = r.main.stage_timings or {}
+            stages_dict = timings.get("stages") if isinstance(timings, dict) else None
+            if not isinstance(stages_dict, dict):
+                continue
+            v = stages_dict.get(stage)
+            # Reject NaN / ±inf alongside negatives (CodeRabbit #14
+            # round-7): `json.loads` accepts non-standard tokens by
+            # default and a planner that emits Infinity would silently
+            # corrupt every P50/P95 cell downstream.
+            if isinstance(v, (int, float)) and math.isfinite(v) and v >= 0:
+                samples.append(float(v))
+        if not samples:
+            continue
+        samples.sort()
+        sample_n[stage] = len(samples)
+        p50[stage] = samples[len(samples) // 2]
+        idx = min(math.ceil(len(samples) * 0.95) - 1, len(samples) - 1)
+        p95[stage] = samples[max(idx, 0)]
+    return p50, p95, sample_n
+
+
+def _op_percentiles(
+    main_oks: list[CaseResult],
+) -> tuple[dict[str, float], dict[str, float], dict[str, int]]:
+    """Per-op-kind P50/P95 across every op invocation, in milliseconds.
+
+    The header carries `ops: [{kind, out, ms}, ...]` per request. We
+    flatten across all successful turns and bucket by `kind` — so a
+    `group_by` op contributes one sample per appearance, regardless of
+    which case used it. This answers "in a complex 8-op plan, which
+    *kind* of op is the slow one" rather than the per-stage view's
+    "is execute as a whole slow".
+
+    Returns three parallel dicts keyed by op kind. Buckets with no
+    samples are omitted (rather than zero-filled) so the renderer can
+    show "未实现" honestly when an older deploy didn't surface `ops`.
+    """
+    by_kind: dict[str, list[float]] = {}
+    for r in main_oks:
+        timings = r.main.stage_timings or {}
+        ops = timings.get("ops") if isinstance(timings, dict) else None
+        if not isinstance(ops, list):
+            continue
+        for entry in ops:
+            if not isinstance(entry, dict):
+                continue
+            kind = entry.get("kind")
+            ms = entry.get("ms")
+            # Round-7: `math.isfinite(ms)` rejects NaN / ±inf which
+            # `isinstance(_, (int, float))` lets through. Without this,
+            # one bad header poisons the per-op P50/P95 row.
+            if (
+                not isinstance(kind, str)
+                or not isinstance(ms, (int, float))
+                or not math.isfinite(ms)
+                or ms < 0
+            ):
+                continue
+            by_kind.setdefault(kind, []).append(float(ms))
+
+    p50: dict[str, float] = {}
+    p95: dict[str, float] = {}
+    sample_n: dict[str, int] = {}
+    for kind, samples in by_kind.items():
+        samples.sort()
+        sample_n[kind] = len(samples)
+        p50[kind] = samples[len(samples) // 2]
+        idx = min(math.ceil(len(samples) * 0.95) - 1, len(samples) - 1)
+        p95[kind] = samples[max(idx, 0)]
+    return p50, p95, sample_n
 
 
 # ---------------------------------------------------------------------------
@@ -389,7 +610,7 @@ async def main_async(args: argparse.Namespace) -> int:
         for case in cases:
             try:
                 result = await run_case(client, case)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 print(f"  ✗ {case['id']} crashed: {exc}", file=sys.stderr)
                 result = CaseResult(
                     case_id=case["id"],
@@ -485,12 +706,23 @@ def _dict_to_case_result(data: dict) -> CaseResult:
     def _turn(d: dict | None) -> TurnResult | None:
         if d is None:
             return None
+        # Round-10 (CodeRabbit #14): a prior run JSON may have been
+        # written before the live `_parse_stage_timings` started filtering
+        # NaN/Infinity (or by a future bug that re-introduces it). Re-
+        # validate the cached payload before re-emitting it into the new
+        # summary.json so resumes can't smuggle invalid JSON forward.
+        cached_timings = d.get("stage_timings")
+        if not isinstance(cached_timings, dict) or not _is_jsonable_finite(
+            cached_timings
+        ):
+            cached_timings = None
         return TurnResult(
             label=d["label"],
             status_code=d["status_code"],
             latency_s=d["latency_s"],
             body=d.get("body"),
             error=d.get("error"),
+            stage_timings=cached_timings,
         )
 
     main_turn = _turn(data["main"])

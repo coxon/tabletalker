@@ -11,7 +11,10 @@ mounted from `app.api.*`:
   in PR #6.
 """
 
+import os
+
 from fastapi import FastAPI
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app import __version__
 from app.api.analyze import router as analyze_router
@@ -20,6 +23,32 @@ from app.api.reports import router as reports_router
 from app.api.spreadsheet import router as spreadsheet_router
 
 app = FastAPI(title="TableTalker Backend", version=__version__)
+# Trust `X-Forwarded-Proto` / `X-Forwarded-Host` / `X-Forwarded-For`
+# from the reverse proxy in front of uvicorn. We mount the middleware
+# at the app level (rather than relying solely on `uvicorn --proxy-headers`)
+# so behaviour is consistent across launchers (uvicorn CLI, gunicorn,
+# TestClient) and so tests can exercise the proxy path. The handler
+# uses `request.base_url` to construct `report_html_url`; if proxy
+# headers aren't honoured, deploys behind nginx/Caddy emit URLs
+# pointing at `localhost:8000` even when accessed via `https://...`.
+#
+# Round-9 (CodeRabbit #14): the previous default of `trusted_hosts="*"`
+# blindly trusted X-Forwarded-* from any source — fine for the
+# tested-behind-trusted-infra submission window, but a foot-gun if the
+# image leaks onto a network where a hostile client can reach uvicorn
+# directly. The `APP_TRUSTED_PROXIES` env var (comma-separated) lets
+# operators pin exactly which sources are trusted, and we keep `"*"`
+# as the explicit default with a doc-string so the choice is visible
+# in the deploy log instead of buried in code. Empty string disables
+# proxy-header trust entirely (useful for local dev without a proxy).
+_trusted_proxies_env = os.environ.get("APP_TRUSTED_PROXIES", "*").strip()
+if _trusted_proxies_env in ("", "*"):
+    _trusted_hosts: str | list[str] = _trusted_proxies_env or []
+else:
+    _trusted_hosts = [
+        host.strip() for host in _trusted_proxies_env.split(",") if host.strip()
+    ]
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=_trusted_hosts)
 app.include_router(spreadsheet_router)
 app.include_router(analyze_router)
 app.include_router(follow_up_router)

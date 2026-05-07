@@ -49,7 +49,24 @@ echo "==> Frontend: installing deps"
 ( cd src/frontend && pnpm install --frozen-lockfile )
 
 echo "==> Launching backend on :8000 and frontend on :3000"
-( cd src/backend && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 ) &
+# `--proxy-headers` lets uvicorn honour `X-Forwarded-Proto` /
+# `X-Forwarded-Host` from a TLS-terminating reverse proxy. The backend
+# uses the request URL to build absolute `report_html_url`s; without
+# this, deploys behind nginx/Caddy/Cloudfront would emit URLs pointing
+# at `http://localhost:8000` even when accessed via `https://demo.example.com`.
+#
+# We deliberately do NOT pass `--forwarded-allow-ips '*'`. uvicorn's
+# default (`127.0.0.1`) means uvicorn only honours `X-Forwarded-*`
+# from a same-host proxy, and from there the proxy-trust decision is
+# delegated to the app-level `ProxyHeadersMiddleware`, which gates
+# trust on the `APP_TRUSTED_PROXIES` env var (see
+# `src/backend/app/main.py`). Wildcarding the uvicorn allowlist here
+# would let an arbitrary client (e.g. someone hitting :8000 directly)
+# spoof headers and override `report_html_url` — defeating
+# APP_TRUSTED_PROXIES entirely.
+( cd src/backend && uv run uvicorn app.main:app \
+    --host 0.0.0.0 --port 8000 \
+    --proxy-headers ) &
 BACK_PID=$!
 ( cd src/frontend && pnpm dev --port 3000 ) &
 FRONT_PID=$!

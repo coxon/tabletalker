@@ -125,7 +125,12 @@ def test_analyze_returns_contract_shape(
 
     # Contract-required fields
     assert body["id"].startswith("eval_analysis_")
-    assert body["report_html_url"] == f"https://example.test/reports/{body['id']}.html"
+    # `report_html_url` is built from the *request* origin (TestClient's
+    # default `http://testserver/`), not the env's APP_PUBLIC_URL —
+    # request-derived URLs win so a deploy behind a TLS proxy doesn't
+    # emit `localhost:8000` links to clients seeing `https://...`. The
+    # env still serves as the library/CLI fallback (see test_url_fallback).
+    assert body["report_html_url"] == f"http://testserver/reports/{body['id']}.html"
     assert "华东" in body["summary"]
     assert body["is_refusal"] is False
     assert body["confidence"] == pytest.approx(0.85)
@@ -194,6 +199,81 @@ def test_analyze_refuses_when_question_asks_for_missing_column(
     report = client.get(f"/reports/{body['id']}.html")
     assert report.status_code == 200
     assert "种族" in report.text
+
+
+# ---------------------------------------------------------------------------
+# `report_html_url` origin selection
+# ---------------------------------------------------------------------------
+
+
+def test_report_url_uses_request_origin_over_env(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Request URL beats `APP_PUBLIC_URL` so proxy deploys emit correct links.
+
+    Without this, a backend started with `APP_PUBLIC_URL=http://localhost:8000`
+    behind nginx (where users see `https://demo.example.com`) would return
+    `report_html_url=http://localhost:8000/reports/...`, which the user's
+    browser can't fetch. We pin the rule with a refusal request because
+    refusal hits the same URL-build code path without burning two LLM
+    stubs.
+    """
+    monkeypatch.setenv("APP_PUBLIC_URL", "https://misconfigured.invalid")
+    monkeypatch.setattr(
+        api_module, "HttpChatClient", lambda config: _SequencedStubClient([])
+    )
+    response = client.post(
+        "/v1/analyze",
+        files={"file": ("emp.csv", b"name,salary\nA,100\nB,200\n", "text/csv")},
+        data={"question": "Show purchase rate by race"},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["is_refusal"] is True
+    # TestClient's default base_url is `http://testserver/`. The env
+    # value `https://misconfigured.invalid` is the *fallback*, not the
+    # default — request origin wins.
+    assert body["report_html_url"].startswith("http://testserver/reports/")
+    assert "misconfigured.invalid" not in body["report_html_url"]
+
+
+def test_report_url_respects_x_forwarded_proto(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Behind a TLS-terminating proxy, the `https://` URL must propagate.
+
+    Standard nginx config in front of uvicorn:
+        proxy_set_header Host              $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+    With `ProxyHeadersMiddleware` mounted in `app.main`, the scheme
+    flips from http→https and the `Host` header sets the authority.
+    `运行脚本/start.sh` deliberately omits `--forwarded-allow-ips` and
+    passes only `uvicorn --proxy-headers`; proxy trust is governed by
+    the app's own `APP_TRUSTED_PROXIES` allowlist (see `app.main`), so
+    uvicorn's builtin header middleware is left at its default 127.0.0.1
+    scope and can't be tricked by an arbitrary X-Forwarded-* sender.
+    """
+    stub = _SequencedStubClient([_plan_json(), _narrative_json()])
+    monkeypatch.setattr(api_module, "HttpChatClient", lambda config: stub)
+
+    response = client.post(
+        "/v1/analyze",
+        files={"file": ("sales.csv", _csv_bytes(), "text/csv")},
+        data={"question": "各地区的总销售额是多少？"},
+        headers={
+            "X-Forwarded-Proto": "https",
+            "Host": "demo.example.com",
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    # `Host: demo.example.com` + `X-Forwarded-Proto: https` →
+    # request.base_url = "https://demo.example.com/" — exactly what
+    # `report_html_url` should reflect for proxied deploys.
+    assert body["report_html_url"].startswith("https://demo.example.com/reports/"), (
+        f"expected https://demo.example.com/... got {body['report_html_url']!r}"
+    )
 
 
 # ---------------------------------------------------------------------------

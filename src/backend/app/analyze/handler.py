@@ -28,6 +28,7 @@ import re
 import secrets
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pandas as pd
 from pydantic import ValidationError
@@ -40,6 +41,8 @@ from app.analyze.profiler import (
     profile_table,
 )
 from app.analyze.schema import AnalyzeResponse, Evidence, Finding
+from app.analyze.stages import record as _stage
+from app.analyze.stages import record_ops as _stage_ops
 from app.report import REPORT_STORE, render_report
 from app.spreadsheet.executor import (
     ExecutionReport,
@@ -59,10 +62,38 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _public_base_url() -> str:
-    """The absolute origin for `report_html_url`. Defaults to localhost
-    so dev runs without `.env` still produce a valid (if local) URL."""
+def _public_base_url(override: str | None = None) -> str:
+    """The absolute origin for `report_html_url`.
 
+    Preference order:
+      1. Explicit `override` from the route layer — typically
+         `str(request.base_url)`. With `uvicorn --proxy-headers`, this
+         already honours `X-Forwarded-Proto` / `X-Forwarded-Host`, so
+         a deploy behind a TLS-terminating reverse proxy returns
+         `https://demo.example.com/` rather than `http://localhost:8000`.
+      2. `APP_PUBLIC_URL` env (set in `.env` and required by `start.sh`).
+      3. `http://localhost:8000` as the dev-mode last resort, so library
+         callers and tests still produce a valid (if local) URL.
+
+    The trailing slash is stripped so the caller can safely append
+    `/reports/{id}.html` without doubling separators.
+
+    Round-14 (CodeRabbit #14): filter strict-loopback overrides
+    (`localhost` / `127.0.0.1` / `::1`) and fall through to
+    `APP_PUBLIC_URL` so a deploy with an incomplete proxy config doesn't
+    hand the browser a URL it can't fetch. `testserver` is preserved
+    unfiltered because it is the authority the FastAPI TestClient
+    always emits and our proxy-aware contract test pins the URL
+    exactly to `http://testserver/...`. That name cannot appear in
+    production traffic, so keeping it out of the filter list is a
+    zero-risk test seam rather than a soft spot.
+    """
+
+    if override:
+        parsed = urlsplit(override)
+        host = (parsed.hostname or "").lower()
+        if host and host not in {"localhost", "127.0.0.1", "::1"}:
+            return override.rstrip("/")
     return os.environ.get("APP_PUBLIC_URL", "http://localhost:8000").rstrip("/")
 
 
@@ -108,6 +139,10 @@ class AnalyzeRequest:
       - `is_followup`: treats refusal-detection differently — follow-ups
         of refused parents always refuse without re-running the trap
         keyword check, since the prelude already encodes that.
+      - `base_url`: route-layer override for the report URL origin.
+        The HTTP routes pass `str(request.base_url)` so a proxied
+        deploy returns `https://demo.example.com/...` rather than the
+        env's `APP_PUBLIC_URL` fallback. None for library/CLI callers.
     """
 
     workspace: Path
@@ -117,6 +152,7 @@ class AnalyzeRequest:
     prelude: str | None = None
     request_id: str | None = None
     is_followup: bool = False
+    base_url: str | None = None
 
 
 class AnalyzeFailure(Exception):
@@ -144,13 +180,14 @@ async def handle_analyze(
     """Run the full pipeline and return a contract-shape response."""
 
     request_id = request.request_id or _new_request_id()
-    report_url = f"{_public_base_url()}/reports/{request_id}.html"
+    report_url = f"{_public_base_url(request.base_url)}/reports/{request_id}.html"
 
     # 1. Profile
     try:
         profile = profile_table(request.workspace / request.filename)
     except ProfilerError as exc:
         raise AnalyzeFailure(str(exc), status_code=422) from exc
+    _stage("profile")
 
     # 2. Refusal heuristic — follow-ups of refused parents skip this and
     #    use the route-level refusal carry-through instead, since the
@@ -190,6 +227,7 @@ async def handle_analyze(
         workspace_filename=request.filename,
         prelude=request.prelude,
     )
+    _stage("preview_plan_req")
     try:
         plan = await make_plan(chat_client, plan_req)
     except PlannerError as exc:
@@ -198,6 +236,7 @@ async def handle_analyze(
     except LLMError as exc:
         logger.warning("LLM call failed during planning: %s", exc)
         raise AnalyzeFailure("LLM gateway error", status_code=502) from exc
+    _stage("plan_llm")
 
     # 4. Execute
     try:
@@ -214,6 +253,17 @@ async def handle_analyze(
             f"op execution failed at step {exc.op_index + 1} ({exc.op.kind})",
             status_code=422,
         ) from exc
+    _stage("execute")
+    # Surface per-op timings alongside the umbrella `execute` stage so the
+    # eval renderer can show "which op in a complex plan was slow". Each
+    # entry mirrors the op's `kind`/`out`/`ms` (already wall-clocked inside
+    # the executor) — purely diagnostic, doesn't affect total_s.
+    _stage_ops(
+        [
+            {"kind": r.kind, "out": r.out, "ms": r.ms}
+            for r in report.op_results
+        ]
+    )
 
     # 5. Evidence
     evidence_rows = build_evidence(
@@ -222,6 +272,7 @@ async def handle_analyze(
         report.op_results,
         EvidenceContext(dataset=request.dataset, table=request.filename),
     )
+    _stage("evidence")
 
     # 6. Finalise (LLM-authored Chinese narrative)
     try:
@@ -234,6 +285,7 @@ async def handle_analyze(
         raise AnalyzeFailure(
             "model did not produce a valid summary", status_code=502
         ) from exc
+    _stage("finalize_llm")
 
     # 7. Assemble
     finding = Finding(
@@ -257,6 +309,7 @@ async def handle_analyze(
     )
     REPORT_STORE.put(request_id, rendered.html)
 
+    _stage("render")
     return AnalyzeResponse(
         id=request_id,
         report_html_url=report_url,
@@ -315,6 +368,12 @@ def _refusal_response(
         answer=None,
     )
     REPORT_STORE.put(request_id, rendered.html)
+    # Round-9 (CodeRabbit #14): emit the `render` stage on refusal
+    # paths too. Without this `X-Stage-Timings.total_s` underreports
+    # refused-request latency by the time spent rendering the
+    # refusal HTML, which makes refused-vs-successful timings
+    # incomparable in the eval renderer's per-stage table.
+    _stage("render")
     return AnalyzeResponse(
         id=request_id,
         report_html_url=report_url,
@@ -493,7 +552,7 @@ def make_followup_id(parent_id: str, turn_index: int) -> str:
 
 
 def build_refusal_carry_through(
-    *, request_id: str, parent_summary: str
+    *, request_id: str, parent_summary: str, base_url: str | None = None
 ) -> AnalyzeResponse:
     """Echo a parent refusal into a follow-up response.
 
@@ -502,6 +561,11 @@ def build_refusal_carry_through(
     "we couldn't analyze this" to a different narrative within the same
     session. We re-use the parent's `summary` directly and re-render the
     chart-less refusal HTML keyed under the follow-up's id.
+
+    `base_url` mirrors `AnalyzeRequest.base_url`: routes pass
+    `str(request.base_url)` so the carry-through URL respects forwarded
+    proxy headers; library callers leave it None and the env fallback
+    kicks in.
     """
 
     rendered = render_report(
@@ -514,9 +578,16 @@ def build_refusal_carry_through(
         answer=None,
     )
     REPORT_STORE.put(request_id, rendered.html)
+    # Round-9 (CodeRabbit #14): same gap as `_refusal_response` — the
+    # carry-through path also rendered HTML without emitting a
+    # `render` stage mark, so the X-Stage-Timings header on
+    # carry-through follow-ups under-reported total_s. The follow-up
+    # route binds a stage timer for the same reason analyze does, so
+    # this `_stage("render")` will land in the bound dict.
+    _stage("render")
     return AnalyzeResponse(
         id=request_id,
-        report_html_url=f"{_public_base_url()}/reports/{request_id}.html",
+        report_html_url=f"{_public_base_url(base_url)}/reports/{request_id}.html",
         summary=parent_summary,
         findings=[],
         charts=rendered.charts,

@@ -72,6 +72,110 @@ def _trap_actual_is_refusal(trap: dict) -> bool | None:
     return value if isinstance(value, bool) else None
 
 
+# Display labels for each stage in the per-stage perf table. Keys
+# match `app.analyze.stages.STAGE_ORDER` on the server / `_STAGE_ORDER`
+# in `run.py`. Order in this dict drives row order in the rendered
+# table. Targets are aspirational — they're informational, not graded.
+_STAGE_DISPLAY: tuple[tuple[str, str, str, str], ...] = (
+    ("profile",          "Profile 阶段 P50/P95 (s)",     "≤ 0.1",  "确定性；pandas 读取 + 类型推断"),
+    ("preview_plan_req", "Preview+PlanReq 阶段 P50/P95 (s)", "≤ 0.1",  "确定性；预读 5 行并组装 PlanRequest"),
+    ("plan_llm",         "Plan(LLM) 阶段 P50/P95 (s)",   "≤ 20",   "planner LLM round-trip（主瓶颈）"),
+    ("execute",          "Execute 阶段 P50/P95 (s)",     "≤ 1.0",  "确定性；算子顺序执行"),
+    ("evidence",         "Evidence 阶段 P50/P95 (s)",    "≤ 0.1",  "确定性；证据行抽取"),
+    ("finalize_llm",     "Finalize(LLM) 阶段 P50/P95 (s)", "≤ 10", "narrative LLM round-trip"),
+    ("render",           "Render 阶段 P50/P95 (s)",      "≤ 0.5",  "Jinja HTML + 图表选择"),
+)
+
+
+def _fmt_stage_seconds(v: float) -> str:
+    """Format short values (sub-second) with more precision so a 23 ms
+    profile stage doesn't render as ``0.0``.
+
+    Distinct from :func:`_fmt_seconds` (which always uses ``:.1f`` for
+    request-level totals where seconds-of-precision matches the SLO).
+    """
+    return f"{v:.3f}" if v < 1.0 else f"{v:.1f}"
+
+
+def _stage_rows(
+    stage_p50: dict, stage_p95: dict, stage_n: dict
+) -> list[str]:
+    """Build markdown rows for §9 stage breakdown.
+
+    Returns one row per stage that has samples; skipped stages contribute
+    a `未实现` row so the table stays a stable shape across runs even
+    when the backend is older than the eval client.
+    """
+    rows: list[str] = []
+    for key, label, target, note in _STAGE_DISPLAY:
+        n = stage_n.get(key, 0) if isinstance(stage_n, dict) else 0
+        if not isinstance(n, int) or n <= 0:
+            rows.append(f"| {label} | 未实现 | {target} | {note} |")
+            continue
+        p50_v = stage_p50.get(key)
+        p95_v = stage_p95.get(key)
+        if not isinstance(p50_v, (int, float)) or not isinstance(p95_v, (int, float)):
+            rows.append(f"| {label} | 未实现 | {target} | {note} |")
+            continue
+        rows.append(
+            f"| {label} | {_fmt_stage_seconds(float(p50_v))} / "
+            f"{_fmt_stage_seconds(float(p95_v))} (n={n}) | {target} | {note} |"
+        )
+    return rows
+
+
+# Display order for the per-op-kind table. Kinds not in this list still
+# render at the bottom in alphabetical order — we don't drop unknown
+# kinds because the executor's op set may grow before this file does.
+_OP_DISPLAY_ORDER: tuple[str, ...] = (
+    "load_csv",
+    "load_excel",
+    "select_columns",
+    "filter_rows",
+    "add_column",
+    "group_by",
+    "aggregate",
+    "sort",
+    "head",
+    "tail",
+    "join",
+    "pivot",
+    "melt",
+    "to_table",
+    "to_chart",
+)
+
+
+def _op_rows(
+    op_p50: dict, op_p95: dict, op_n: dict
+) -> list[str]:
+    """Build markdown rows for §9 per-op-kind breakdown.
+
+    One row per op kind that appeared in any successful turn. Each row
+    shows P50/P95 in milliseconds and the sample size (= total
+    invocations across all turns, since one plan can use a kind multiple
+    times). Empty when no turn surfaced `ops` in the header.
+    """
+    if not isinstance(op_n, dict) or not op_n:
+        return []
+    seen = set(op_n.keys())
+    ordered = [k for k in _OP_DISPLAY_ORDER if k in seen]
+    extras = sorted(seen - set(_OP_DISPLAY_ORDER))
+    rows: list[str] = []
+    for kind in ordered + extras:
+        n = op_n.get(kind, 0)
+        if not isinstance(n, int) or n <= 0:
+            continue
+        p50_v = op_p50.get(kind)
+        p95_v = op_p95.get(kind)
+        if not isinstance(p50_v, (int, float)) or not isinstance(p95_v, (int, float)):
+            continue
+        rows.append(
+            f"| `{kind}` | {float(p50_v):.2f} / {float(p95_v):.2f} | {n} |"
+        )
+    return rows
+
+
 def render(run_dir: Path, commit_sha: str | None) -> str:
     summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
     metrics = summary["metrics"]
@@ -114,6 +218,22 @@ def render(run_dir: Path, commit_sha: str | None) -> str:
     fu_succ = metrics["followup_success_rate"]
     session_carry = metrics["session_carry_rate"]
     report_render = metrics["report_render_rate"]
+
+    # Per-stage timings: render only stages with samples > 0. Older
+    # runs (pre-instrumentation) report nothing here, in which case we
+    # fall through to the legacy single-line P50/P95 only.
+    stage_p50 = metrics.get("stage_p50_s") or {}
+    stage_p95 = metrics.get("stage_p95_s") or {}
+    stage_n = metrics.get("stage_sample_n") or {}
+    stage_rows = _stage_rows(stage_p50, stage_p95, stage_n)
+
+    # Per-op-kind timings: same source (`X-Stage-Timings.ops`),
+    # different aggregation. Empty when the run is from an older deploy
+    # that didn't surface `ops` — the §9.1 sub-section is then omitted.
+    op_p50 = metrics.get("op_p50_ms") or {}
+    op_p95 = metrics.get("op_p95_ms") or {}
+    op_n = metrics.get("op_sample_n") or {}
+    op_rows = _op_rows(op_p50, op_p95, op_n)
 
     # Per-trap-category breakdown (subset of trap_total). Only refusal-
     # expected traps roll into the must-refuse categories; non-refusal
@@ -251,7 +371,16 @@ def render(run_dir: Path, commit_sha: str | None) -> str:
 | 冷启动 → 首次响应 (s) | 未实现 | ≤ 5 | uvicorn warm-up 未单独计时 |
 | 单次问答 P50 (s) | {_fmt_seconds(p50)} | ≤ 30 | 注意：含 LLM round-trip；本机 LLM 网关较慢 |
 | 单次问答 P95 (s) | {_fmt_seconds(p95)} | ≤ 60 | 同上 |
+{chr(10).join(stage_rows)}
 | 内存峰值 (MB) | 未实现 | ≤ 1024 | 未上 memory-profiler |
+
+### 9.1 算子级耗时（仅 `execute` 阶段拆解）
+
+> Source: `X-Stage-Timings.ops` (per-request); aggregation across all
+> 200-OK main turns. P50 / P95 in **毫秒** (ms), n = 总调用次数（一份计划
+> 用了几次该算子就计几次）。当 `ops` 字段缺失（旧版后端）时本节为空。
+
+{('| 算子 | P50 / P95 (ms) | 样本数 |' + chr(10) + '|---|---|---|' + chr(10) + chr(10).join(op_rows)) if op_rows else '_无样本（后端未返回 `X-Stage-Timings.ops`，或所有 main 用例均失败）。_'}
 
 ---
 
