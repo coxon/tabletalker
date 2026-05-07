@@ -492,9 +492,6 @@ def test_follow_up_carry_through_emits_empty_stages_header(
     # `build_refusal_carry_through` never calls `_stage()` — stages is empty.
     assert isinstance(payload["stages"], dict)
     assert payload["stages"] == {}
-    # No LLM stages on the carry-through path.
-    assert "plan_llm" not in payload["stages"]
-    assert "finalize_llm" not in payload["stages"]
 
 
 def test_follow_up_happy_path_emits_full_header(

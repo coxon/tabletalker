@@ -87,6 +87,16 @@ _STAGE_DISPLAY: tuple[tuple[str, str, str, str], ...] = (
 )
 
 
+def _fmt_stage_seconds(v: float) -> str:
+    """Format short values (sub-second) with more precision so a 23 ms
+    profile stage doesn't render as ``0.0``.
+
+    Distinct from :func:`_fmt_seconds` (which always uses ``:.1f`` for
+    request-level totals where seconds-of-precision matches the SLO).
+    """
+    return f"{v:.3f}" if v < 1.0 else f"{v:.1f}"
+
+
 def _stage_rows(
     stage_p50: dict, stage_p95: dict, stage_n: dict
 ) -> list[str]:
@@ -107,13 +117,9 @@ def _stage_rows(
         if not isinstance(p50_v, (int, float)) or not isinstance(p95_v, (int, float)):
             rows.append(f"| {label} | 未实现 | {target} | {note} |")
             continue
-        # Format short values (sub-second) with more precision so a
-        # 23 ms profile stage doesn't render as "0.0".
-        def _fmt(v: float) -> str:
-            return f"{v:.3f}" if v < 1.0 else f"{v:.1f}"
-
         rows.append(
-            f"| {label} | {_fmt(float(p50_v))} / {_fmt(float(p95_v))} (n={n}) | {target} | {note} |"
+            f"| {label} | {_fmt_stage_seconds(float(p50_v))} / "
+            f"{_fmt_stage_seconds(float(p95_v))} (n={n}) | {target} | {note} |"
         )
     return rows
 
