@@ -94,7 +94,10 @@ def _safe_float(value: object) -> float:
         return 0.0
     try:
         result = float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        # `OverflowError` shows up for `Decimal('1e1000')` and similar
+        # exotic inputs; pre-round-10 these escaped the `(TypeError,
+        # ValueError)` net and 500'd the whole stage-timing path.
         return 0.0
     if not math.isfinite(result):
         return 0.0

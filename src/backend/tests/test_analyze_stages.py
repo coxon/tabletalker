@@ -173,6 +173,23 @@ def test_record_ops_sanitizes_malformed_entries() -> None:
         assert sanitised["ms"] == 0.0
 
 
+def test_safe_float_handles_overflow_error() -> None:
+    """`Decimal('1e1000')` and similar exotic inputs raise `OverflowError`
+    on `float()`, which pre-round-10 escaped the `(TypeError, ValueError)`
+    net and 500'd the whole stage-timing path. `_safe_float` now returns
+    0.0 for that case too.
+    """
+    from decimal import Decimal
+
+    from app.analyze.stages import _safe_float
+
+    assert _safe_float(Decimal("1e1000")) == 0.0
+    # Sanity: still passes baselines.
+    assert _safe_float(1.5) == 1.5
+    assert _safe_float(None) == 0.0
+    assert _safe_float("not a number") == 0.0
+
+
 def test_record_ops_caps_count_and_field_length() -> None:
     """Header serialisation is bounded: at most MAX_HEADER_OPS entries
     survive, and each `kind`/`out` is truncated to MAX_OP_FIELD_CHARS.

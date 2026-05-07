@@ -696,13 +696,23 @@ def _dict_to_case_result(data: dict) -> CaseResult:
     def _turn(d: dict | None) -> TurnResult | None:
         if d is None:
             return None
+        # Round-10 (CodeRabbit #14): a prior run JSON may have been
+        # written before the live `_parse_stage_timings` started filtering
+        # NaN/Infinity (or by a future bug that re-introduces it). Re-
+        # validate the cached payload before re-emitting it into the new
+        # summary.json so resumes can't smuggle invalid JSON forward.
+        cached_timings = d.get("stage_timings")
+        if not isinstance(cached_timings, dict) or not _is_jsonable_finite(
+            cached_timings
+        ):
+            cached_timings = None
         return TurnResult(
             label=d["label"],
             status_code=d["status_code"],
             latency_s=d["latency_s"],
             body=d.get("body"),
             error=d.get("error"),
-            stage_timings=d.get("stage_timings"),
+            stage_timings=cached_timings,
         )
 
     main_turn = _turn(data["main"])
