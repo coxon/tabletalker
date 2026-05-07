@@ -1144,3 +1144,31 @@ def test_analyze_rejects_aggregate_size_overflow(
     assert "combined" in response.text.lower()
     assert stub.calls == 0
 
+
+def test_safe_filename_strips_windows_path_segments() -> None:
+    """Browsers on Windows occasionally POST the full client path (e.g.
+    ``C:\\Users\\alice\\sales.csv``). On macOS / Linux test hosts
+    `Path(name).name` treats backslashes as ordinary characters, so the
+    naïve basename split would keep the whole string — breaking the
+    dedup loop (every weird path looks distinct) and producing nonsense
+    filenames inside the workspace. CodeRabbit #17 round-15 nit; the fix
+    normalises ``\\`` to ``/`` before taking the basename.
+    """
+    from app.api.analyze import _safe_filename
+
+    # Cross-platform path; basename must be `sales.csv` regardless of
+    # which slash style the client used.
+    assert _safe_filename(r"C:\Users\alice\sales.csv") == "sales.csv"
+    assert _safe_filename(r"\\share\team\reports\q1.csv") == "q1.csv"
+    # Mixed slashes — the most insidious browser quirk; still must yield
+    # the basename only.
+    assert _safe_filename("C:/Users/alice\\sales.csv") == "sales.csv"
+    # POSIX paths still work — guard against the regex over-stripping.
+    assert _safe_filename("/var/tmp/uploads/sales.csv") == "sales.csv"
+    # Dotfiles still rejected (defence-in-depth — covered before the
+    # fix, regression-pin so a future refactor can't drop the guard).
+    assert _safe_filename(".env") == "upload.csv"
+    assert _safe_filename(r"C:\path\.hidden") == "upload.csv"
+    # Empty / whitespace-only stems collapse to the fallback.
+    assert _safe_filename("") == "upload.csv"
+

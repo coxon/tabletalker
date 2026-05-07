@@ -246,7 +246,21 @@ async def analyze(
 
 
 def _safe_filename(name: str) -> str:
-    base = Path(name).name
+    """Normalise an upload's reported filename to a basename we can store.
+
+    Browsers running on Windows still occasionally POST the full client
+    path (e.g. ``C:\\Users\\alice\\sales.csv``); on macOS / Linux hosts
+    `pathlib.Path` treats ``\\`` as a regular character, so the naïve
+    `Path(name).name` would keep the whole string. That blows the
+    multi-file dedup loop (every weird path looks distinct) and produces
+    nonsense filenames in the workspace. Normalise backslashes to
+    forward-slashes first so the basename split works cross-platform.
+    Also rejects bare/dotfile names (`.env` etc.) as a defence-in-depth
+    against a client uploading a file that the OS would treat as hidden.
+    (CodeRabbit #17 round-15 nit.)
+    """
+
+    base = Path(name.replace("\\", "/")).name
     if not base or base.startswith("."):
         return "upload.csv"
     return base
