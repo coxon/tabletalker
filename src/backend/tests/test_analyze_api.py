@@ -1171,4 +1171,3 @@ def test_safe_filename_strips_windows_path_segments() -> None:
     assert _safe_filename(r"C:\path\.hidden") == "upload.csv"
     # Empty / whitespace-only stems collapse to the fallback.
     assert _safe_filename("") == "upload.csv"
-
