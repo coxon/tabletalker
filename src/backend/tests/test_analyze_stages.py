@@ -388,6 +388,16 @@ def test_analyze_emits_x_stage_timings_header(
     assert payload["total_s"] == pytest.approx(
         sum(payload["stages"].values()), abs=1e-3
     )
+    # Round-7 (CodeRabbit #14): the response body's `report_html_url`
+    # must be derived from the request origin, not a hardcoded
+    # `http://localhost:8000`. `TestClient` uses `http://testserver`
+    # as its base URL, so the proxy-aware path must surface that.
+    body = response.json()
+    assert "report_html_url" in body
+    assert body["report_html_url"].startswith("http://testserver/"), (
+        f"report_html_url must reflect the request origin, got "
+        f"{body['report_html_url']!r}"
+    )
 
 
 def test_analyze_refusal_still_emits_header(

@@ -444,7 +444,11 @@ def _stage_percentiles(
             if not isinstance(stages_dict, dict):
                 continue
             v = stages_dict.get(stage)
-            if isinstance(v, (int, float)) and v >= 0:
+            # Reject NaN / ±inf alongside negatives (CodeRabbit #14
+            # round-7): `json.loads` accepts non-standard tokens by
+            # default and a planner that emits Infinity would silently
+            # corrupt every P50/P95 cell downstream.
+            if isinstance(v, (int, float)) and math.isfinite(v) and v >= 0:
                 samples.append(float(v))
         if not samples:
             continue
@@ -483,7 +487,15 @@ def _op_percentiles(
                 continue
             kind = entry.get("kind")
             ms = entry.get("ms")
-            if not isinstance(kind, str) or not isinstance(ms, (int, float)) or ms < 0:
+            # Round-7: `math.isfinite(ms)` rejects NaN / ±inf which
+            # `isinstance(_, (int, float))` lets through. Without this,
+            # one bad header poisons the per-op P50/P95 row.
+            if (
+                not isinstance(kind, str)
+                or not isinstance(ms, (int, float))
+                or not math.isfinite(ms)
+                or ms < 0
+            ):
                 continue
             by_kind.setdefault(kind, []).append(float(ms))
 
@@ -557,7 +569,7 @@ async def main_async(args: argparse.Namespace) -> int:
         for case in cases:
             try:
                 result = await run_case(client, case)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 print(f"  ✗ {case['id']} crashed: {exc}", file=sys.stderr)
                 result = CaseResult(
                     case_id=case["id"],
