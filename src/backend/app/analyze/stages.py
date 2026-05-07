@@ -60,6 +60,16 @@ STAGE_ORDER: tuple[str, ...] = (
 MAX_HEADER_OPS = 50
 MAX_OP_FIELD_CHARS = 64
 
+# Hard byte ceiling for the *serialised* header. `ensure_ascii=True`
+# expands non-ASCII characters 6× (`测` → `\u6d4b`), so a CJK-heavy plan
+# of 50 × 128-char fields could balloon to ~40 KiB and overflow the
+# response header. Most reverse proxies cap response headers around
+# 4–8 KiB; 4 KiB leaves comfortable room for other framework headers
+# while still surfacing the per-op breakdown for ASCII plans (where
+# the cap is rarely hit) and the stages dict for everything else.
+MAX_HEADER_BYTES = 4096
+
+
 
 
 def _safe_float(value: object) -> float:
@@ -231,8 +241,42 @@ def serialize_header(timer: StageTimer) -> str:
     future non-ASCII stage name (we don't have any) wouldn't break HTTP
     serialisation. Compact separators keep the header short — most
     proxies tolerate a few hundred bytes without complaint.
+
+    Degradation ladder (CodeRabbit #14 round-3): `ensure_ascii=True`
+    expands each non-ASCII char 6x (`测` -> `\\u6d4b`), so the per-op
+    char caps aren't enough for a CJK-heavy plan. If the initial
+    serialisation exceeds `MAX_HEADER_BYTES` we:
+      1. Drop trailing ops one at a time until it fits (keeps the
+         head of the plan, which is usually the slow part).
+      2. If even ops=[] doesn't fit (should be impossible with the
+         stage dict alone, but guards against future payload growth),
+         fall back to the stages-only view — the contract promises
+         stages are *always* present.
     """
-    return json.dumps(timer.as_payload(), separators=(",", ":"), ensure_ascii=True)
+    payload = timer.as_payload()
+    raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
+    if len(raw.encode("ascii")) <= MAX_HEADER_BYTES:
+        return raw
+
+    # Shrink `ops` only — keeping `stages` intact is non-negotiable,
+    # the eval renderer joins on it. If `ops` isn't present we've
+    # overflowed on stage count or unexpected payload growth; return
+    # the truncated raw and let the test catch a regression.
+    ops = payload.get("ops")
+    if isinstance(ops, list) and ops:
+        shrunk = dict(payload)
+        shrunk_ops = list(ops)
+        while shrunk_ops:
+            shrunk_ops.pop()
+            shrunk["ops"] = shrunk_ops
+            if not shrunk_ops:
+                shrunk.pop("ops")
+            candidate = json.dumps(
+                shrunk, separators=(",", ":"), ensure_ascii=True
+            )
+            if len(candidate.encode("ascii")) <= MAX_HEADER_BYTES:
+                return candidate
+    return raw
 
 
 __all__ = [

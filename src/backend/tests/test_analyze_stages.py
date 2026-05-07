@@ -190,6 +190,50 @@ def test_record_ops_caps_count_and_field_length() -> None:
     )
 
 
+def test_serialize_header_caps_byte_size_for_cjk_payload() -> None:
+    """`ensure_ascii=True` expands CJK 6x (`测` -> `\\u6d4b`), so a
+    CJK-heavy plan that satisfies the per-op char cap can still
+    overflow the response header. Round-3 of CodeRabbit on #14:
+    `serialize_header` must drop trailing ops until the serialised
+    payload fits `MAX_HEADER_BYTES`.
+
+    The test assembles 50 x 64-CJK-char ops (the legal max under the
+    per-field caps) - naively this serialises to ~40 KiB; the header
+    must come out at <= MAX_HEADER_BYTES with the head of the plan
+    preserved (so the slow op, almost always near the head, stays
+    visible in metrics).
+    """
+    from app.analyze.stages import (
+        MAX_HEADER_BYTES,
+        MAX_HEADER_OPS,
+        MAX_OP_FIELD_CHARS,
+    )
+
+    timer = StageTimer()
+    timer.record("execute")
+    timer.record_ops(
+        [
+            {
+                "kind": "测" * MAX_OP_FIELD_CHARS,
+                "out": "试" * MAX_OP_FIELD_CHARS,
+                "ms": 0.1,
+            }
+            for _ in range(MAX_HEADER_OPS)
+        ]
+    )
+    raw = serialize_header(timer)
+    # Header must fit the byte ceiling.
+    assert len(raw.encode("ascii")) <= MAX_HEADER_BYTES
+    payload = json.loads(raw)
+    # Stages survive intact — the renderer joins on them and refusing
+    # to publish them would lose more than dropping ops would.
+    assert "stages" in payload and "execute" in payload["stages"]
+    # Some ops survived (the head of the plan) — diagnostic value
+    # isn't entirely lost, just bounded.
+    assert "ops" in payload
+    assert 0 < len(payload["ops"]) < MAX_HEADER_OPS
+
+
 
 def test_concurrent_binds_are_isolated() -> None:
     # Two coroutines holding their own StageTimer must not mix their
