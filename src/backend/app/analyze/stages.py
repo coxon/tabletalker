@@ -106,11 +106,16 @@ class StageTimer:
         # eval renderer).
         clean: list[dict[str, object]] = []
         for entry in op_entries:
+            ms_raw = entry.get("ms")
+            # `entry` is typed `dict[str, object]` so `ms_raw` is `object`.
+            # Narrow before float() to keep pyright happy and to silently
+            # coerce non-numeric junk to zero rather than crashing.
+            ms_val = float(ms_raw) if isinstance(ms_raw, (int, float)) else 0.0
             clean.append(
                 {
                     "kind": str(entry.get("kind", "")),
                     "out": str(entry.get("out", "")),
-                    "ms": round(float(entry.get("ms") or 0.0), 3),
+                    "ms": round(ms_val, 3),
                 }
             )
         self.ops = clean
