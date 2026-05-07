@@ -437,13 +437,9 @@ def test_analyze_refusal_still_emits_header(
     response = client.post(
         "/v1/analyze",
         files={"file": ("emp.csv", csv, "text/csv")},
-        # English token "race" — the trap detector requires whole-token
-        # match (see _detect_refusal in handler.py). CJK questions like
-        # "按种族分析" don't tokenise the keyword out cleanly under the
-        # default `\w+` split, so they don't trigger the heuristic; the
-        # production refusal flow there relies on the LLM's session
-        # prelude rather than this trap. Test the path that the trap
-        # actually covers.
+        # English token "race" exercises the ASCII branch of
+        # `_detect_refusal` (whole-token match). The CJK substring branch
+        # ("按种族分析") is covered separately in test_analyze_api.
         data={"question": "Show purchase rate by race"},
     )
     assert response.status_code == 200, response.text

@@ -112,8 +112,7 @@ async def analyze(
         client = HttpChatClient(config)
         request = PlanRequest(
             question=question,
-            table_preview=preview,
-            workspace_filename=filename,
+            tables=[(filename, preview)],
         )
 
         try:
