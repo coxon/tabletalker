@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import contextvars
 import json
+import math
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -73,7 +74,8 @@ MAX_HEADER_BYTES = 4096
 
 
 def _safe_float(value: object) -> float:
-    """Best-effort float coercion that never raises.
+    """Best-effort float coercion that never raises and never returns
+    a non-finite value.
 
     `record_ops` accepts op telemetry as `dict[str, object]`, so `ms`
     may hold anything a buggy caller put there (a string `"N/A"`, a
@@ -82,13 +84,21 @@ def _safe_float(value: object) -> float:
     publish a diagnostic header. Swallowing to `0.0` matches the rest
     of the defensive copy — the entry is kept, its broken timing is
     simply dropped.
+
+    Non-finite floats are *also* coerced to `0.0`: `float("1e309")`
+    yields `inf`, which would survive `max(0.0, ...)` and serialize
+    as `Infinity` — invalid RFC 4627 JSON, breaking strict consumers
+    of the `X-Stage-Timings` header (CodeRabbit #14 round-4).
     """
     if value is None:
         return 0.0
     try:
-        return float(value)  # type: ignore[arg-type]
+        result = float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return 0.0
+    if not math.isfinite(result):
+        return 0.0
+    return result
 
 
 @dataclass

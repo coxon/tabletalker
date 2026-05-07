@@ -129,10 +129,13 @@ def test_record_ops_sanitizes_malformed_entries() -> None:
 
     `record_ops` accepts whatever the executor handed us. A plan with
     one buggy op (e.g. `None` smuggled in by a future op kind, a non-
-    numeric `ms`, or a negative timing from clock skew) must not 500
-    the request. The contract:
+    numeric `ms`, a negative timing from clock skew, or a non-finite
+    overflow like `1e309 == inf`) must not 500 the request. The
+    contract:
       - Non-dict entries are silently skipped.
-      - Non-numeric / negative `ms` is coerced to `0.0`.
+      - Non-numeric / negative / non-finite `ms` is coerced to `0.0`.
+        Non-finite handling is round-4: `inf` would otherwise survive
+        `max(0.0, ...)` and serialise as invalid `Infinity` JSON.
       - The header still serializes cleanly.
     """
     with bind_stage_timer() as t:
@@ -149,17 +152,25 @@ def test_record_ops_sanitizes_malformed_entries() -> None:
                 {"kind": "group_by", "out": "g", "ms": "N/A"},
                 # Negative `ms` → clamped to 0.0
                 {"kind": "aggregate", "out": "totals", "ms": -5.0},
+                # Non-finite `ms` (overflow) → clamped to 0.0; without
+                # this, `json.dumps` would emit `Infinity` (invalid
+                # RFC 4627) and break strict header consumers.
+                {"kind": "to_chart", "out": "chart", "ms": float("inf")},
+                {"kind": "render", "out": "html", "ms": float("nan")},
             ]
         )
-    payload = json.loads(serialize_header(t))
+    raw = serialize_header(t)
+    # Strict JSON parser must accept the header — `Infinity`/`NaN`
+    # would fail `json.loads` (which mirrors the eval renderer).
+    payload = json.loads(raw)
     assert "ops" in payload
-    # 3 valid dicts survive; the 3 non-dict entries are dropped.
-    assert len(payload["ops"]) == 3
+    # 5 valid dicts survive (1 valid + 1 NA + 1 negative + 1 inf + 1 nan);
+    # the 3 non-dict entries are dropped.
+    assert len(payload["ops"]) == 5
     assert payload["ops"][0]["ms"] == 1.5
-    # Non-numeric and negative both clamp to 0.0 — the same floor as
-    # `record()` applies to stage durations.
-    assert payload["ops"][1]["ms"] == 0.0
-    assert payload["ops"][2]["ms"] == 0.0
+    # All sanitised entries collapsed to 0.0 — same floor as `record()`.
+    for sanitised in payload["ops"][1:]:
+        assert sanitised["ms"] == 0.0
 
 
 def test_record_ops_caps_count_and_field_length() -> None:
