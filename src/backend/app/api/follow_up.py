@@ -39,6 +39,7 @@ from app.analyze.handler import (
 )
 from app.analyze.schema import AnalyzeResponse
 from app.analyze.stages import bind_stage_timer, serialize_header
+from app.persistence import get_session_recorder
 from app.session import (
     SESSION_STORE,
     extract_cohorts,
@@ -138,6 +139,12 @@ async def follow_up(
                 session.id, turn_index, allocation_token=alloc_token
             )
             raise
+        _record_followup_safe(
+            session_id=session.id,
+            turn_index=turn_index,
+            question=clean_question,
+            response=carry_response,
+        )
         return carry_response
 
     # Happy path — brief the planner with prior context, then dispatch
@@ -223,6 +230,12 @@ async def follow_up(
         is_refusal=analyze_response.is_refusal,
         allocation_token=alloc_token,
     )
+    _record_followup_safe(
+        session_id=session.id,
+        turn_index=turn_index,
+        question=clean_question,
+        response=analyze_response,
+    )
     return analyze_response
 
 
@@ -258,3 +271,34 @@ def _finalise_turn(
             status.HTTP_404_NOT_FOUND,
             f"session {session_id!r} not found or expired",
         ) from exc
+
+
+def _record_followup_safe(
+    *,
+    session_id: str,
+    turn_index: int,
+    question: str,
+    response: AnalyzeResponse,
+) -> None:
+    """Best-effort write to the durable history index.
+
+    Mirrors `analyze.py`'s parent-side recorder hook: the recorder
+    already swallows sqlite errors internally, but this outer
+    try/except catches anything outside that contract (e.g. a future
+    refactor that changes the recorder signature) so the route never
+    propagates a history-side failure to the client.
+    """
+
+    try:
+        get_session_recorder().record_followup(
+            session_id=session_id,
+            turn_index=turn_index,
+            question=question,
+            response=response,
+        )
+    except Exception:  # side-channel; never fail the request
+        logger.exception(
+            "history recorder: follow-up persist raised for %s/%d",
+            session_id,
+            turn_index,
+        )
