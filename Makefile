@@ -44,7 +44,7 @@ dev: ## Run backend (:8000) + frontend (:3000) concurrently
 	@echo "→ backend  http://localhost:8000"
 	@echo "→ frontend http://localhost:3000"
 	@trap 'kill 0' INT TERM EXIT; \
-	  ( cd $(BACKEND_DIR)  && uv run uvicorn app.main:app --reload --port 8000 ) & \
+	  ( cd $(BACKEND_DIR)  && uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 ) & \
 	  ( cd $(FRONTEND_DIR) && $(PNPM) dev ) & \
 	  wait
 

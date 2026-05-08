@@ -40,7 +40,7 @@ src/frontend/next-env.d.ts
 
 # Runtime artifacts
 data/
-reports/
+/reports/
 logs/
 *.log
 uploads/
