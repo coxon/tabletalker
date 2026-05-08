@@ -252,3 +252,133 @@ def test_delete_session_returns_404_when_missing(
 ) -> None:
     r = client.delete("/v1/sessions/never_existed")
     assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# 503 on persistence failure (CR #18 round-1)
+# ---------------------------------------------------------------------------
+#
+# A broken/locked sqlite store must surface as 503 — not 500 (which the
+# UI would render as a generic "something went wrong"), and not 404
+# (which would tell the user their data is gone). Three routes, three
+# tests, one shared sabotage trick: close the recorder's connection out
+# from under it so every subsequent call raises sqlite.ProgrammingError.
+
+
+def _break_recorder(rec: SessionRecorder) -> None:
+    """Force every subsequent recorder call to raise sqlite.Error.
+
+    Closing the connection is enough — sqlite raises
+    `ProgrammingError` (subclass of `sqlite3.Error`) on any operation
+    after `close()`, which is what our route's `except sqlite3.Error`
+    catches.
+    """
+
+    rec._conn.close()
+
+
+def test_list_sessions_returns_503_on_db_error(
+    client: TestClient, recorder: SessionRecorder
+) -> None:
+    _break_recorder(recorder)
+    r = client.get("/v1/sessions")
+    assert r.status_code == 503
+    assert r.json()["detail"] == "Session history temporarily unavailable"
+
+
+def test_get_session_returns_503_on_db_error(
+    client: TestClient, recorder: SessionRecorder
+) -> None:
+    _break_recorder(recorder)
+    r = client.get("/v1/sessions/anything")
+    assert r.status_code == 503
+
+
+def test_delete_session_returns_503_on_db_error(
+    client: TestClient, recorder: SessionRecorder
+) -> None:
+    """Critical: a broken DB must not collapse to 404 on delete.
+
+    Pre-fix, delete_session swallowed sqlite errors and returned False,
+    which the route translated to 404 — telling the user "this session
+    is already gone" while in reality the row was still there. Now the
+    error propagates and the route returns 503.
+    """
+
+    recorder.record_parent(
+        _mk_response("real"),
+        primary_filename="x.csv",
+        extra_filenames=[],
+        original_question="q",
+        sampling_rate=None,
+        sampling_note=None,
+    )
+    _break_recorder(recorder)
+    r = client.delete("/v1/sessions/real")
+    assert r.status_code == 503
+
+
+# ---------------------------------------------------------------------------
+# CR #18 round-1: is_refusal is derived from status — they cannot diverge
+# ---------------------------------------------------------------------------
+
+
+def test_summary_is_refusal_is_derived_from_status(
+    client: TestClient, recorder: SessionRecorder, tmp_path: Path
+) -> None:
+    """Even if the DB stores an inconsistent is_refusal flag, the wire
+    response derives `is_refusal` from `status`. This guards against a
+    future migration that adds a status value but forgets to update the
+    flag column.
+    """
+
+    # Sneak an inconsistent row past the recorder by writing directly:
+    # status=refused but is_refusal=0 (the wrong value if read raw).
+    recorder.record_parent(
+        _mk_response("inconsistent", refused=True, n_findings=0),
+        primary_filename="x.csv",
+        extra_filenames=[],
+        original_question="q",
+        sampling_rate=None,
+        sampling_note=None,
+    )
+    # Force the underlying flag to disagree with status.
+    recorder._conn.execute(
+        "UPDATE sessions SET is_refusal = 0 WHERE id = ?", ("inconsistent",)
+    )
+    recorder._conn.commit()
+
+    body = client.get("/v1/sessions").json()
+    [item] = body["items"]
+    assert item["status"] == "refused"
+    # API derives this — the raw column was 0 but status wins.
+    assert item["is_refusal"] is True
+
+
+def test_corrupted_status_value_returns_503(
+    client: TestClient, recorder: SessionRecorder
+) -> None:
+    """A row containing a status value outside the closed Literal set
+    must surface as 503, not silently slip through as a free-form string.
+
+    The DB column is plain TEXT (sqlite has no enum type), so a future
+    schema or hand-edit could plant 'in_progress'. The recorder's
+    coerce helpers raise `sqlite3.DatabaseError`, which the route maps
+    to 503.
+    """
+
+    recorder.record_parent(
+        _mk_response("legacy"),
+        primary_filename="x.csv",
+        extra_filenames=[],
+        original_question="q",
+        sampling_rate=None,
+        sampling_note=None,
+    )
+    recorder._conn.execute(
+        "UPDATE sessions SET status = 'in_progress' WHERE id = ?", ("legacy",)
+    )
+    recorder._conn.commit()
+
+    r = client.get("/v1/sessions")
+    assert r.status_code == 503

@@ -17,6 +17,7 @@ to the routes:
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -24,6 +25,7 @@ import pytest
 
 from app.analyze.schema import AnalyzeResponse, Chart, Evidence, Finding
 from app.persistence import SessionRecorder
+from app.persistence.sessions import _SCHEMA_VERSION
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -582,3 +584,59 @@ def test_record_parent_swallows_sqlite_errors(
         sampling_rate=None,
         sampling_note=None,
     )
+
+
+# ---------------------------------------------------------------------------
+# Failure propagation — read paths surface errors so the route can 503
+# ---------------------------------------------------------------------------
+
+
+def test_delete_session_propagates_sqlite_errors(
+    recorder: SessionRecorder,
+) -> None:
+    """delete_session must NOT swallow sqlite errors (CR #18 round-1).
+
+    The previous implementation `return False`d on sqlite.Error, which
+    the route interpreted as 404. The user would think their row was
+    gone and re-create it — except the next listing would still show
+    it (because the DELETE never landed). Propagating lets the route
+    distinguish "broken" (503) from "not present" (404).
+    """
+
+    recorder.record_parent(
+        _mk_response("present"),
+        primary_filename="x.csv",
+        extra_filenames=[],
+        original_question="q",
+        sampling_rate=None,
+        sampling_note=None,
+    )
+    recorder._conn.close()
+    with pytest.raises(sqlite3.Error):
+        recorder.delete_session("present")
+
+
+def test_recorder_fails_closed_on_schema_version_mismatch(
+    tmp_path: Path,
+) -> None:
+    """A DB whose `_schema_version` row disagrees with this build must
+    refuse to bind, not silently keep going (CR #18 round-1).
+
+    We pre-seed a sqlite file with an alien version row, then construct
+    a SessionRecorder against it. The constructor must raise so the
+    lazy singleton doesn't cache an incompatible recorder.
+    """
+
+    db_path = tmp_path / "wrong-version.db"
+    # Hand-build the minimum needed for the bootstrap probe: just the
+    # `_schema_version` table with a row claiming a future version.
+    conn = sqlite3.connect(db_path)
+    conn.executescript(
+        "CREATE TABLE _schema_version (version INTEGER NOT NULL);"
+        f"INSERT INTO _schema_version (version) VALUES ({_SCHEMA_VERSION + 99});"
+    )
+    conn.commit()
+    conn.close()
+
+    with pytest.raises(sqlite3.DatabaseError, match="schema version mismatch"):
+        SessionRecorder(db_path=db_path)

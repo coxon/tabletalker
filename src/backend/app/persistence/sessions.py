@@ -70,6 +70,7 @@ from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from app.analyze.schema import AnalyzeResponse
 
@@ -77,6 +78,17 @@ logger = logging.getLogger(__name__)
 
 
 _SCHEMA_VERSION = 1
+
+# Closed enums for the two enum-shaped columns. Lifted to module-level
+# (rather than inlined as `Literal[...]` in each dataclass) so the API
+# layer can reuse the same aliases without having to redeclare the
+# allowed values, and so a future refactor that adds a third state
+# (e.g. "in_progress") changes one place. CR #18 round-1 nit: typing
+# the persistence DTOs lets the API conversion functions drop their
+# `# type: ignore[arg-type]` markers — the row→DTO→Pydantic chain is
+# now Literal-typed end to end.
+SessionStatus = Literal["completed", "refused"]
+TurnKind = Literal["parent", "follow_up"]
 
 
 def _resolve_db_path() -> Path:
@@ -113,7 +125,7 @@ class SessionSummary:
     extra_filenames: tuple[str, ...]
     created_at: float
     updated_at: float
-    status: str
+    status: SessionStatus
     is_refusal: bool
     follow_up_count: int
     chart_count: int
@@ -125,7 +137,7 @@ class SessionTurnRecord:
     """One turn inside a session — what the detail panel renders."""
 
     turn_index: int
-    kind: str  # 'parent' | 'follow_up'
+    kind: TurnKind
     question: str
     response_id: str
     is_refusal: bool
@@ -145,7 +157,7 @@ class SessionDetail:
     extra_filenames: tuple[str, ...]
     created_at: float
     updated_at: float
-    status: str
+    status: SessionStatus
     is_refusal: bool
     chart_count: int
     finding_count: int
@@ -184,7 +196,15 @@ class SessionRecorder:
         # the listing UI polls while a long analyze is mid-flight.
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
-        self._init_schema()
+        # Schema bootstrap may raise (e.g. version mismatch — CR #18
+        # round-1). Close the connection on failure so the file handle
+        # doesn't leak; the caller will get the original exception and
+        # the lazy singleton will not cache this half-built instance.
+        try:
+            self._init_schema()
+        except BaseException:
+            self._conn.close()
+            raise
 
     # ------------------------------------------------------------------
     # Schema bootstrap
@@ -249,16 +269,28 @@ class SessionRecorder:
                     (_SCHEMA_VERSION,),
                 )
             elif row["version"] != _SCHEMA_VERSION:
-                # We only ship v1 today; any other value would mean
-                # someone hand-edited the DB. Better to scream loud than
-                # corrupt the user's history silently.
+                # CR #18 round-1 (Major): fail closed instead of returning
+                # a recorder bound to an incompatible schema. Caching such a
+                # recorder would mean every subsequent /v1/sessions call
+                # silently fails with the wrong column shape until the
+                # process restarts; raising here lets the lazy singleton
+                # re-attempt on the next call (after the operator has
+                # cleaned up the rogue file). The route layer translates
+                # `sqlite3.DatabaseError` to a 503, so the UI can render a
+                # "history temporarily unavailable" toast instead of a
+                # generic 500.
                 logger.error(
-                    "session DB schema version mismatch: file=%s expected=%s. "
-                    "If this is the first boot of a new release, run "
-                    "`rm %s` to recreate; otherwise investigate the source.",
+                    "session DB schema version mismatch: file=%s found=%s "
+                    "expected=%s. If this is the first boot of a new release, "
+                    "run `rm %s` to recreate; otherwise investigate the source.",
+                    self._db_path,
                     row["version"],
                     _SCHEMA_VERSION,
                     self._db_path,
+                )
+                raise sqlite3.DatabaseError(
+                    f"session DB schema version mismatch for {self._db_path}: "
+                    f"found {row['version']}, expected {_SCHEMA_VERSION}"
                 )
 
     @contextmanager
@@ -540,17 +572,20 @@ class SessionRecorder:
         entry would still work until the in-memory TTL expires, which is
         the right tradeoff: deleting from history is "stop showing this
         in my list", not "yank the workspace mid-conversation".
+
+        Unlike the write path (`record_parent` / `record_followup`),
+        this method **propagates** sqlite errors instead of swallowing
+        them. CR #18 round-1 (Major): the previous `return False` on
+        error was indistinguishable from "session id not present", so a
+        broken history store would tell the UI "the row is gone" and
+        the user would see their analysis vanish. The route layer
+        catches the exception and returns 503, leaving 404 to mean only
+        what it should — a genuine miss.
         """
 
-        try:
-            with self._tx() as cur:
-                cur.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
-                deleted = cur.rowcount
-        except sqlite3.Error:
-            logger.exception(
-                "session recorder: failed to delete session %s", session_id
-            )
-            return False
+        with self._tx() as cur:
+            cur.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+            deleted = cur.rowcount
         return deleted > 0
 
     # ------------------------------------------------------------------
@@ -623,6 +658,34 @@ def _derive_title(question: str) -> str:
     return cleaned[:39] + "…"
 
 
+def _coerce_status(raw: str) -> SessionStatus:
+    """Validate a sqlite-stored status string against the closed enum.
+
+    The DB column is plain TEXT (sqlite has no enum type), so a row
+    surviving from a future schema — or hand-edited by an operator —
+    might contain a value pyright's `Literal` doesn't cover. Failing
+    loud on read keeps a corrupted row from silently propagating into
+    the API response (where `extra="forbid"` would 500 with a less
+    obvious diagnostic). Cheap: one `in` check per row.
+    """
+
+    if raw not in ("completed", "refused"):
+        raise sqlite3.DatabaseError(
+            f"unexpected status value in session row: {raw!r}"
+        )
+    return raw
+
+
+def _coerce_kind(raw: str) -> TurnKind:
+    """Same closed-enum guard as `_coerce_status`, for `session_turns.kind`."""
+
+    if raw not in ("parent", "follow_up"):
+        raise sqlite3.DatabaseError(
+            f"unexpected kind value in session_turns row: {raw!r}"
+        )
+    return raw
+
+
 def _row_to_summary(row: sqlite3.Row) -> SessionSummary:
     return SessionSummary(
         id=row["id"],
@@ -631,7 +694,7 @@ def _row_to_summary(row: sqlite3.Row) -> SessionSummary:
         extra_filenames=tuple(json.loads(row["extra_filenames"])),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
-        status=row["status"],
+        status=_coerce_status(row["status"]),
         is_refusal=bool(row["is_refusal"]),
         follow_up_count=int(row["follow_up_count"]),
         chart_count=row["chart_count"],
@@ -642,7 +705,7 @@ def _row_to_summary(row: sqlite3.Row) -> SessionSummary:
 def _row_to_turn(row: sqlite3.Row) -> SessionTurnRecord:
     return SessionTurnRecord(
         turn_index=row["turn_index"],
-        kind=row["kind"],
+        kind=_coerce_kind(row["kind"]),
         question=row["question"],
         response_id=row["response_id"],
         is_refusal=bool(row["is_refusal"]),

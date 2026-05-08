@@ -16,6 +16,7 @@ reshapes the history page, and vice versa.
 from __future__ import annotations
 
 import logging
+import sqlite3
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -31,6 +32,14 @@ from app.persistence import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["sessions"])
+
+# CR #18 round-1 (Major): a sqlite-side failure (locked DB, schema
+# mismatch, disk-full read) must surface as a 503 — not a generic 500
+# with a stack trace, and not a 404 (which would tell the UI "this
+# session no longer exists" and risk users deleting their workspace
+# expecting a re-create). One detail string keeps the wire surface
+# uniform across all three routes.
+_HISTORY_UNAVAILABLE = "Session history temporarily unavailable"
 
 
 # ---------------------------------------------------------------------------
@@ -146,11 +155,22 @@ def list_sessions(
     listing an O(limit) scan) and saving a network round-trip matters
     when the history page mounts — the UI otherwise flashes "0 analyses"
     before the stats resolve.
+
+    Persistence errors are translated to 503; we deliberately do **not**
+    fall back to an empty list because that would let a corrupted DB
+    masquerade as "no history yet" and trick the user into starting
+    fresh analyses against the same broken store.
     """
 
-    recorder = get_session_recorder()
-    rows = recorder.list_sessions(query=q, status=status_filter, limit=limit)
-    stats = recorder.stats()
+    try:
+        recorder = get_session_recorder()
+        rows = recorder.list_sessions(query=q, status=status_filter, limit=limit)
+        stats = recorder.stats()
+    except sqlite3.Error:
+        logger.exception("session recorder unavailable on list_sessions")
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, _HISTORY_UNAVAILABLE
+        ) from None
     return SessionListOut(
         stats=SessionStatsOut(**stats),
         items=[_summary_to_out(r) for r in rows],
@@ -163,10 +183,20 @@ def get_session(session_id: str) -> SessionDetailOut:
 
     Returns 404 when the id is unknown — the history list is the source
     of truth for what's fetchable, so a missing id means the user
-    either deleted it or is following a stale deep-link.
+    either deleted it or is following a stale deep-link. A read error
+    (corrupted row, locked file) yields 503 instead, so the UI can
+    distinguish "gone" from "currently broken".
     """
 
-    detail = get_session_recorder().get_session(session_id)
+    try:
+        detail = get_session_recorder().get_session(session_id)
+    except sqlite3.Error:
+        logger.exception(
+            "session recorder unavailable on get_session %s", session_id
+        )
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, _HISTORY_UNAVAILABLE
+        ) from None
     if detail is None:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
@@ -183,9 +213,23 @@ def delete_session(session_id: str) -> None:
     alone: an in-flight follow-up against `session_id` should complete
     against its workspace rather than break mid-response because the
     history UI removed the card. TTL will reap it on schedule.
+
+    A sqlite error here is **not** collapsed into 404 (CR #18 round-1):
+    the recorder used to swallow the error and return False, which the
+    route would then translate to "not found", silently lying to the
+    user. Now the recorder propagates and we 503 — preserving 404's
+    meaning of "genuinely absent".
     """
 
-    removed = get_session_recorder().delete_session(session_id)
+    try:
+        removed = get_session_recorder().delete_session(session_id)
+    except sqlite3.Error:
+        logger.exception(
+            "session recorder unavailable on delete_session %s", session_id
+        )
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, _HISTORY_UNAVAILABLE
+        ) from None
     if not removed:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
@@ -199,6 +243,12 @@ def delete_session(session_id: str) -> None:
 
 
 def _summary_to_out(row: SessionSummary) -> SessionSummaryOut:
+    # CR #18 round-1 (Trivial): `is_refusal` is kept on the wire shape
+    # because clients use it directly in iconography conditions, but
+    # it's *derived* from `status` here rather than read from the
+    # recorder field. That keeps the two from drifting if a future
+    # writer forgets to set them in lock-step (e.g. a migration that
+    # adds a new status value but doesn't update is_refusal).
     return SessionSummaryOut(
         id=row.id,
         title=row.title,
@@ -206,8 +256,8 @@ def _summary_to_out(row: SessionSummary) -> SessionSummaryOut:
         extra_filenames=list(row.extra_filenames),
         created_at=row.created_at,
         updated_at=row.updated_at,
-        status=row.status,  # type: ignore[arg-type]
-        is_refusal=row.is_refusal,
+        status=row.status,
+        is_refusal=row.status == "refused",
         follow_up_count=row.follow_up_count,
         chart_count=row.chart_count,
         finding_count=row.finding_count,
@@ -215,6 +265,10 @@ def _summary_to_out(row: SessionSummary) -> SessionSummaryOut:
 
 
 def _detail_to_out(detail: SessionDetail) -> SessionDetailOut:
+    # Same derive-from-status rule as `_summary_to_out`. Turn-level
+    # `is_refusal` *is* read directly from the per-turn record because
+    # turns don't carry their own status — refusal is a property of
+    # the response payload, not of the conversation row.
     return SessionDetailOut(
         id=detail.id,
         title=detail.title,
@@ -222,8 +276,8 @@ def _detail_to_out(detail: SessionDetail) -> SessionDetailOut:
         extra_filenames=list(detail.extra_filenames),
         created_at=detail.created_at,
         updated_at=detail.updated_at,
-        status=detail.status,  # type: ignore[arg-type]
-        is_refusal=detail.is_refusal,
+        status=detail.status,
+        is_refusal=detail.status == "refused",
         chart_count=detail.chart_count,
         finding_count=detail.finding_count,
         report_html_url=detail.report_html_url,
@@ -236,7 +290,7 @@ def _detail_to_out(detail: SessionDetail) -> SessionDetailOut:
 def _turn_to_out(turn: SessionTurnRecord) -> SessionTurnOut:
     return SessionTurnOut(
         turn_index=turn.turn_index,
-        kind=turn.kind,  # type: ignore[arg-type]
+        kind=turn.kind,
         question=turn.question,
         response_id=turn.response_id,
         is_refusal=turn.is_refusal,
