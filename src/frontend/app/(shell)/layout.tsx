@@ -21,7 +21,16 @@ import type { ReactNode } from "react";
 
 import { TopBar } from "../../components/TopBar";
 
-const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
+// Dev-only fallback: if `BACKEND_URL` is unset in production, we
+// deliberately do NOT probe — a localhost:8000 default there would
+// waste TIMEOUT_MS on every page load waiting for a DNS / connect
+// refusal, and the "后端不可达" pill would flap for every user. In
+// prod the deployment is expected to inject the real URL; if it
+// forgets, the pill renders "unreachable" instantly (no probe) so
+// ops notices. CR #19 round-1.
+const BACKEND_URL =
+  process.env.BACKEND_URL ??
+  (process.env.NODE_ENV === "development" ? "http://localhost:8000" : "");
 const TIMEOUT_MS = 3000;
 
 interface BackendVersion {
@@ -38,6 +47,10 @@ function isBackendVersion(value: unknown): value is BackendVersion {
 }
 
 async function fetchBackendVersion(): Promise<BackendVersion | null> {
+  // Short-circuit on empty URL — skip the timeout-bound probe entirely
+  // so prod without a configured backend doesn't wedge SSR for
+  // TIMEOUT_MS on every request.
+  if (!BACKEND_URL) return null;
   try {
     const response = await fetch(`${BACKEND_URL}/version`, {
       cache: "no-store",

@@ -126,7 +126,9 @@ export function TopBar({ backendOnline, backendLabel }: TopBarProps) {
             // Animated dot — opacity-pulses when offline so a degraded
             // backend visually nags. Stays static when online; we
             // deliberately don't animate ready states (emil "motion has
-            // meaning").
+            // meaning"). Status text is visible `sm+`; below that we
+            // keep a `sr-only` twin so screen readers + keyboard users
+            // aren't left with a color-only indicator. CR #19 round-1.
           >
             <span
               aria-hidden
@@ -136,7 +138,10 @@ export function TopBar({ backendOnline, backendLabel }: TopBarProps) {
                   : "bg-[--color-danger] animate-pulse"
               }`}
             />
-            <span className="hidden sm:inline">
+            <span className="sr-only sm:hidden">
+              {backendOnline ? "后端就绪" : "后端不可达"}
+            </span>
+            <span aria-hidden className="hidden sm:inline">
               {backendOnline ? "后端就绪" : "后端不可达"}
             </span>
           </span>
