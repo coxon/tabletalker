@@ -21,6 +21,7 @@ from app.api.analyze import router as analyze_router
 from app.api.batch import router as batch_router
 from app.api.follow_up import router as follow_up_router
 from app.api.reports import router as reports_router
+from app.api.sessions import router as sessions_router
 from app.api.spreadsheet import router as spreadsheet_router
 
 app = FastAPI(title="TableTalker Backend", version=__version__)
@@ -55,6 +56,7 @@ app.include_router(analyze_router)
 app.include_router(follow_up_router)
 app.include_router(reports_router)
 app.include_router(batch_router)
+app.include_router(sessions_router)
 
 
 @app.get("/health")

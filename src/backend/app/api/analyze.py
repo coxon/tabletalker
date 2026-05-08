@@ -37,6 +37,7 @@ from app.analyze.handler import (
 from app.analyze.schema import AnalyzeResponse
 from app.analyze.stages import bind_stage_timer, serialize_header
 from app.limits import UPLOAD_MAX_BYTES, UPLOAD_MAX_FILES, UPLOAD_MAX_TOTAL_BYTES
+from app.persistence import get_session_recorder
 from app.session import (
     SESSION_STORE,
     extract_cohorts,
@@ -230,6 +231,25 @@ async def analyze(
             extra_filenames=tuple(extra_filenames),
         )
         SESSION_STORE.put(session)
+        # Persist a durable copy in the history index. The recorder
+        # swallows its own sqlite failures; this defensive try/except is
+        # belt-and-braces in case a future refactor changes that
+        # contract — losing a history row should never 500 the actual
+        # analysis response.
+        try:
+            get_session_recorder().record_parent(
+                analyze_response,
+                primary_filename=filename,
+                extra_filenames=extra_filenames,
+                original_question=clean_question,
+                sampling_rate=sampling_rate,
+                sampling_note=clean_note,
+            )
+        except Exception:  # side-channel; never fail the request
+            logger.exception(
+                "history recorder: parent persist raised for %s",
+                analyze_response.id,
+            )
         # Workspace ownership has transferred to the session store — do
         # not rmtree it on the way out.
         keep_workspace = True

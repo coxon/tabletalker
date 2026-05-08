@@ -2,12 +2,48 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
 from app.spreadsheet.context import SpreadsheetContext
+
+
+@pytest.fixture(autouse=True)
+def _isolated_session_recorder(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Iterator[None]:
+    """Redirect the durable session recorder to a per-test tmp DB.
+
+    Without this, every analyze/follow-up test would fall through to
+    the module-level singleton, which resolves `./data/sessions.db`
+    relative to CWD — i.e. `src/backend/data/sessions.db` when pytest
+    is invoked from the package root. That:
+
+      * leaks state across runs (a prior test's row would show up in
+        `list_sessions` for a later test),
+      * litters the working tree with a generated artifact,
+      * occasionally fails on CI when two parallel jobs race the file.
+
+    We swap in a fresh `SessionRecorder` per test, then restore `None`
+    so the next test gets its own. Tests that need the singleton can
+    still call `set_session_recorder()` themselves to override.
+    """
+
+    # Lazy import: keeps `app.persistence` out of the critical path of
+    # tests that don't touch routes (they'd otherwise pay the import
+    # cost and create an empty sqlite file just to stand the fixture up).
+    from app.persistence import SessionRecorder, set_session_recorder
+
+    db_path = tmp_path_factory.mktemp("session-rec") / "sessions.db"
+    rec = SessionRecorder(db_path=db_path)
+    set_session_recorder(rec)
+    try:
+        yield
+    finally:
+        set_session_recorder(None)
 
 
 @pytest.fixture
