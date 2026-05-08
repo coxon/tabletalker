@@ -362,18 +362,18 @@ async def handle_analyze(
         plan = await make_plan(chat_client, plan_req)
     except PlannerError as exc:
         logger.warning("planner rejected request: %s", exc)
-        raise AnalyzeFailure("planner failed to produce a valid plan", status_code=502) from exc
+        raise AnalyzeFailure(f"planner failed to produce a valid plan: {exc}", status_code=502) from exc
     except LLMError as exc:
         logger.warning("LLM call failed during planning: %s", exc)
-        raise AnalyzeFailure("LLM gateway error", status_code=502) from exc
+        raise AnalyzeFailure(f"LLM gateway error: {exc}", status_code=502) from exc
     _stage("plan_llm")
 
     # 4. Execute
     try:
         report = execute(plan, request.workspace)
     except PlanValidationError as exc:
-        logger.info("plan validation failed: %s", exc)
-        raise AnalyzeFailure("generated plan failed validation", status_code=422) from exc
+        logger.warning("plan validation failed: %s", exc)
+        raise AnalyzeFailure(f"generated plan failed validation: {exc}", status_code=422) from exc
     except OpExecutionError as exc:
         # Before surfacing the failure as a 422, see whether it's actually
         # a category-1 refusal in disguise: the planner asked for a column

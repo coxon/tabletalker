@@ -12,8 +12,14 @@ mounted from `app.api.*`:
 """
 
 import os
+from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
+
+# Load .env from repo root (two levels up from this file).
+_env_file = Path(__file__).resolve().parents[3] / ".env"
+load_dotenv(_env_file)
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app import __version__

@@ -107,6 +107,16 @@ execution order — never reference a slot before it's produced.
 
 Do NOT emit raw Python expressions. Always use the DSL above.
 
+## CRITICAL RULE
+
+The plan MUST end with a `to_table` or `to_chart` op. The `answer` field
+MUST reference this render op. Raw DataFrames cannot be returned to the
+user — they must be wrapped in a render op. Example ending:
+
+  { "kind": "to_table", "out": "result", "src": "filtered", "title": "Results" }
+
+If the question asks for a chart, end with `to_chart`. Otherwise end with `to_table`.
+
 ## Output format
 
 Return ONLY the JSON Plan. No prose, no markdown fences. Start with `{`.
