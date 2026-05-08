@@ -1,0 +1,10 @@
+{"id": "q001", "question": "在持有 AI/ML 类技能的员工中，持有相关证书的占比是多少？", "session_id": "s1"}
+{"id": "q002", "question": "再按 BU 看，哪 3 个 BU 的有 AI 技能且持证人数最多？", "session_id": "s1"}
+{"id": "q003", "question": "这些 BU 的整体持证率有没有高于公司平均？", "session_id": "s1"}
+{"id": "q004", "question": "近 5 年北京 7 月平均气温走势如何？", "session_id": "s2"}
+{"id": "q005", "question": "2023 年票房最高的 5 部电影是哪些？", "session_id": "s3"}
+{"id": "q006", "question": "对比一下东部和西部门店的销售毛利率差异", "session_id": "s4"}
+{"id": "q007", "question": "气象数据中，哪几个城市的年降水量最高？", "session_id": "s5"}
+{"id": "q008", "question": "人口数据按年龄段分组，老龄化最严重的省份是哪个？", "session_id": "s6"}
+{"id": "q009", "question": "零售数据中，周末和工作日的销售额比例", "session_id": "s7"}
+{"id": "q010", "question": "试航数据里平均航行时长最长的船只是哪个？", "session_id": "s8"}

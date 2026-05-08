@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Table-Talker · Variations</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Newsreader:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #fafaf8; --bg-2: #f3f3ee; --bg-3: #ebebe4;
+    --surface: #ffffff; --surface-2: #fbfbf7;
+    --line: #e5e5dd; --line-2: #d4d4c9;
+    --ink: #1a1d1a; --ink-2: #3a3d3a; --ink-3: #6b6e69; --ink-4: #9a9d96;
+    --acc: #15875e; --acc-2: #1aa074; --acc-soft: #e2f1eb; --acc-line: #b7d8c9;
+    --warn: #c2630c; --warn-soft: #fbecd6;
+    --info: #2563a8; --info-soft: #e3edf7;
+    --elec: #6e3cf5; --elec-soft: #ece4fe;
+    --font-sans: "Inter", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", monospace;
+    --font-serif: "Newsreader", Georgia, serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: var(--font-sans); color: var(--ink); }
+  .mono { font-family: var(--font-mono); }
+  .serif { font-family: var(--font-serif); }
+  .tabular { font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="canvas/design-canvas.jsx"></script>
+<script type="text/babel" src="canvas/variants.jsx"></script>
+<script type="text/babel">
+  ReactDOM.createRoot(document.getElementById("root")).render(<TTVariationsCanvas />);
+</script>
+</body>
+</html>

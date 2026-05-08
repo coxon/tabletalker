@@ -1,0 +1,249 @@
+{
+  "version": "v1.0",
+  "description": "Table-Talker 指标库（Metric Layer）。业务定义的指标统一定义、可复用、口径一致。对标 dbt Metrics / Cube.dev / LookML。",
+  "metrics": {
+    "GMV": {
+      "name": "GMV",
+      "display_name": "成交总额",
+      "category": "sales",
+      "type": "additive",
+      "unit": "元",
+      "description": "全部已签约订单金额（含未发货）",
+      "datasets": ["sales_orders_2026"],
+      "sql_expression": "SUM(amount)",
+      "filter": "status IN ('closed', 'shipping')",
+      "synonyms": ["成交额", "营收", "总销售额"],
+      "owner": "销售运营",
+      "freshness_sla": "T+1 day"
+    },
+    "Net_Revenue": {
+      "name": "Net_Revenue",
+      "display_name": "净营收",
+      "category": "finance",
+      "type": "additive",
+      "unit": "元",
+      "description": "已收款扣除退款后的净金额",
+      "datasets": ["sales_orders_2026", "fin_pnl_monthly"],
+      "sql_expression": "SUM(CASE WHEN status='closed' THEN amount ELSE 0 END) - SUM(refunds)",
+      "synonyms": ["实收营收", "已确认收入"],
+      "owner": "财务部",
+      "freshness_sla": "月度"
+    },
+    "ARPU": {
+      "name": "ARPU",
+      "display_name": "用户人均收入",
+      "category": "operator",
+      "type": "ratio",
+      "unit": "元/月",
+      "description": "Average Revenue Per User，每用户月均贡献",
+      "datasets": ["operator_arpu"],
+      "sql_expression": "AVG(arpu_value)",
+      "synonyms": ["人均ARPU", "客户人均"],
+      "owner": "运营商业务"
+    },
+    "Churn_Rate": {
+      "name": "Churn_Rate",
+      "display_name": "用户流失率",
+      "category": "operator",
+      "type": "ratio",
+      "unit": "百分比",
+      "description": "本期流失用户数 / 本期初用户数",
+      "datasets": ["operator_arpu"],
+      "sql_expression": "SUM(churn_flag) * 100.0 / COUNT(*)",
+      "synonyms": ["流失率", "客户流失"],
+      "owner": "用户运营"
+    },
+    "Retention_Rate": {
+      "name": "Retention_Rate",
+      "display_name": "留存率",
+      "category": "operator",
+      "type": "ratio",
+      "unit": "百分比",
+      "description": "未流失用户占比，1 - 流失率",
+      "sql_expression": "100.0 - (SUM(churn_flag) * 100.0 / COUNT(*))",
+      "synonyms": ["留存"],
+      "depends_on": ["Churn_Rate"]
+    },
+    "Turnover_Rate": {
+      "name": "Turnover_Rate",
+      "display_name": "员工流动率",
+      "category": "hr",
+      "type": "ratio",
+      "unit": "百分比",
+      "description": "本期离职员工数 / 本期初在职员工数",
+      "datasets": ["employee_analytics"],
+      "sql_expression": "(1.0 - AVG(is_active)) * 100",
+      "synonyms": ["离职率", "流动率", "人员流动"],
+      "owner": "HR 部"
+    },
+    "Cert_Density": {
+      "name": "Cert_Density",
+      "display_name": "认证密度",
+      "category": "hr",
+      "type": "ratio",
+      "unit": "条/人",
+      "description": "员工平均持证数",
+      "datasets": ["employee_analytics"],
+      "sql_expression": "AVG(cert_count)",
+      "synonyms": ["人均证书数", "认证覆盖"]
+    },
+    "AI_Skill_Coverage": {
+      "name": "AI_Skill_Coverage",
+      "display_name": "AI 技能覆盖率",
+      "category": "hr",
+      "type": "ratio",
+      "unit": "百分比",
+      "description": "持有 AI/ML 技能的员工占比",
+      "datasets": ["employee_analytics"],
+      "sql_expression": "AVG(has_ai_skill) * 100",
+      "synonyms": ["AI 渗透率", "AI 普及度"]
+    },
+    "Budget_Variance_Pct": {
+      "name": "Budget_Variance_Pct",
+      "display_name": "预算偏差率",
+      "category": "finance",
+      "type": "ratio",
+      "unit": "百分比",
+      "description": "(实际 - 预算) / 预算 × 100",
+      "datasets": ["fin_pnl_monthly"],
+      "sql_expression": "AVG((actual - budget) / NULLIF(budget, 0) * 100)",
+      "synonyms": ["超支率", "预算偏差"],
+      "thresholds": {
+        "good": "abs(value) <= 5",
+        "warn": "5 < abs(value) <= 10",
+        "alert": "abs(value) > 10"
+      }
+    },
+    "SLA_Hit_Rate": {
+      "name": "SLA_Hit_Rate",
+      "display_name": "SLA 达成率",
+      "category": "service",
+      "type": "ratio",
+      "unit": "百分比",
+      "description": "在 SLA 时限内解决的工单占比",
+      "datasets": ["service_tickets"],
+      "sql_expression": "AVG(sla_met) * 100",
+      "synonyms": ["SLA 完成率", "时限达成"],
+      "owner": "客服中心"
+    },
+    "CSAT": {
+      "name": "CSAT",
+      "display_name": "客户满意度",
+      "category": "service",
+      "type": "average",
+      "unit": "分（1-5）",
+      "description": "工单解决后用户评分",
+      "datasets": ["service_tickets"],
+      "sql_expression": "AVG(csat_score)",
+      "synonyms": ["满意度评分", "服务满意度"]
+    },
+    "DAU": {
+      "name": "DAU",
+      "display_name": "日活跃用户",
+      "category": "product",
+      "type": "count_distinct",
+      "unit": "人",
+      "description": "Daily Active Users",
+      "datasets": ["app_user_events"],
+      "sql_expression": "COUNT(DISTINCT user_id)",
+      "filter": "date = CURRENT_DATE",
+      "synonyms": ["日活", "活跃用户数"]
+    },
+    "MAU": {
+      "name": "MAU",
+      "display_name": "月活跃用户",
+      "category": "product",
+      "type": "count_distinct",
+      "unit": "人",
+      "datasets": ["app_user_events"],
+      "sql_expression": "COUNT(DISTINCT user_id)",
+      "filter": "date >= CURRENT_DATE - INTERVAL '30 days'",
+      "synonyms": ["月活"]
+    },
+    "Conversion_Rate": {
+      "name": "Conversion_Rate",
+      "display_name": "转化率",
+      "category": "marketing",
+      "type": "ratio",
+      "unit": "百分比",
+      "description": "购买事件用户数 / 总活跃用户数",
+      "datasets": ["app_user_events"],
+      "sql_expression": "COUNT(DISTINCT user_id) FILTER (WHERE event_type = 'purchase') * 100.0 / COUNT(DISTINCT user_id)",
+      "synonyms": ["转化", "购买率"]
+    },
+    "ROI": {
+      "name": "ROI",
+      "display_name": "投资回报率",
+      "category": "marketing",
+      "type": "ratio",
+      "unit": "倍",
+      "description": "营销活动收入 / 投入",
+      "datasets": ["marketing_campaigns"],
+      "sql_expression": "SUM(revenue_wan) / NULLIF(SUM(spend_wan), 0)",
+      "synonyms": ["ROI", "回报"]
+    },
+    "CTR": {
+      "name": "CTR",
+      "display_name": "点击率",
+      "category": "marketing",
+      "type": "ratio",
+      "unit": "百分比",
+      "datasets": ["marketing_campaigns"],
+      "sql_expression": "SUM(clicks) * 100.0 / NULLIF(SUM(impressions), 0)",
+      "synonyms": ["点击率"]
+    },
+    "Inventory_Turnover_Days": {
+      "name": "Inventory_Turnover_Days",
+      "display_name": "库存周转天数",
+      "category": "inventory",
+      "type": "average",
+      "unit": "天",
+      "datasets": ["product_inventory"],
+      "sql_expression": "AVG(turnover_days)",
+      "synonyms": ["周转天数", "库存周转"]
+    },
+    "Gross_Margin": {
+      "name": "Gross_Margin",
+      "display_name": "毛利率",
+      "category": "retail",
+      "type": "ratio",
+      "unit": "百分比",
+      "datasets": ["retail_stores"],
+      "sql_expression": "AVG(gross_margin) * 100",
+      "synonyms": ["毛利", "GP"]
+    },
+    "Aging_Pct_60Plus": {
+      "name": "Aging_Pct_60Plus",
+      "display_name": "老龄化率（60+）",
+      "category": "demographics",
+      "type": "ratio",
+      "unit": "百分比",
+      "datasets": ["population_provinces"],
+      "sql_expression": "SUM(CASE WHEN age_group='60+' THEN age_count_wan ELSE 0 END) * 100.0 / SUM(total_population_wan)",
+      "synonyms": ["老龄化", "60+ 占比"]
+    },
+    "Box_Office_Per_Day": {
+      "name": "Box_Office_Per_Day",
+      "display_name": "日均票房",
+      "category": "entertainment",
+      "type": "average",
+      "unit": "亿元/天",
+      "datasets": ["movies_box_office"],
+      "sql_expression": "AVG(total_box_office_yi / 30.0)",
+      "synonyms": ["日均票房"]
+    }
+  },
+  "categories": {
+    "sales": {"display": "销售", "icon": "💼"},
+    "finance": {"display": "财务", "icon": "💰"},
+    "hr": {"display": "人力", "icon": "👥"},
+    "operator": {"display": "运营商", "icon": "📡"},
+    "service": {"display": "客服", "icon": "🎫"},
+    "product": {"display": "产品", "icon": "📱"},
+    "marketing": {"display": "营销", "icon": "📈"},
+    "inventory": {"display": "库存", "icon": "📦"},
+    "retail": {"display": "零售", "icon": "🏪"},
+    "demographics": {"display": "人口", "icon": "🌍"},
+    "entertainment": {"display": "娱乐", "icon": "🎬"}
+  }
+}

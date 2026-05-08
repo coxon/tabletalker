@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Table-Talker · Ask. See. Decide.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Newsreader:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles/tokens.css" />
+<style>
+  @keyframes blink { 50% { opacity: 0; } }
+  @keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(400%); } }
+  @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.6; transform: scale(0.85); } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<!-- 用 ?v= 时间戳防浏览器缓存（每次刷新都拉最新版）-->
+<script>
+  // 写死一个版本号；改完代码 +1 就能强制评委浏览器拉新版
+  window.__TT_VER = "20260506-23-thinking-bubble";
+  document.write('<scr' + 'ipt src="data.js?v=' + window.__TT_VER + '"></scr' + 'ipt>');
+</script>
+
+<!-- ===== 后端对接配置 =====
+     URL 加 ?mock=true 一键回前端纯本地 mock；
+     默认走后端（后端 MOCK_MODE=true 时返回与本地一致的演示数据） -->
+<script>
+  window.TT_API_BASE = "http://localhost:8000";
+  // 想强制回前端纯 mock：把下面这行注释打开
+  // window.TT_API_MOCK = true;
+</script>
+<script>
+  // 同样给所有 .jsx 加版本号
+  const __ttFiles = [
+    { type: "text/javascript", src: "api.js" },
+    { type: "text/babel",      src: "error-boundary.jsx" },
+    { type: "text/babel",      src: "tweaks-panel.jsx" },
+    { type: "text/babel",      src: "charts.jsx" },
+    { type: "text/babel",      src: "trace.jsx" },
+    { type: "text/babel",      src: "sidebar.jsx" },
+    { type: "text/babel",      src: "chat.jsx" },
+    { type: "text/babel",      src: "pages.jsx" },
+    { type: "text/babel",      src: "app.jsx" },
+  ];
+  __ttFiles.forEach(f => {
+    document.write('<scr' + 'ipt type="' + f.type + '" src="' + f.src + '?v=' + window.__TT_VER + '"></scr' + 'ipt>');
+  });
+</script>
+</body>
+</html>

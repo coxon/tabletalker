@@ -1,0 +1,47 @@
+# Table-Talker 后端依赖
+# 用 >= 让 pip 自己挑兼容版本，支持 Python 3.9+
+
+# Web 框架
+fastapi>=0.110,<1.0
+uvicorn[standard]>=0.27
+pydantic>=2.6,<3.0
+sse-starlette>=2.0
+python-multipart>=0.0.9
+
+# HTTP / LLM
+httpx>=0.27
+openai>=1.30
+tenacity>=8.2
+
+# 数据
+duckdb>=1.0
+pandas>=2.0,<3.0
+numpy>=1.26,<3.0
+plotly>=5.20
+
+# 报告导出（可选，不装也能跑核心链路）
+python-docx>=1.0
+reportlab>=4.0
+
+# 缓存与数据库
+redis>=5.0
+sqlalchemy>=2.0
+psycopg2-binary>=2.9 ; platform_system != "Windows"
+pymysql>=1.1
+
+# 知识图谱（TTL 占位，先装着不用也行）
+rdflib>=7.0
+
+# 工具
+loguru>=0.7
+python-dotenv>=1.0
+
+# 测试
+pytest>=8.0
+pytest-asyncio>=0.23
+httpx>=0.27  # 给 fastapi TestClient 用
+
+# 安全 / 鉴权
+slowapi>=0.1.9        # rate limit
+PyJWT>=2.8            # JWT 签发与校验
+passlib[bcrypt]>=1.7  # 密码哈希

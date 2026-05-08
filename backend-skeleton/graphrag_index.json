@@ -1,0 +1,4066 @@
+{
+  "version": "v0.1",
+  "graph": {
+    "nodes": {
+      "dataset": [
+        {
+          "id": "ds:app_user_events",
+          "name": "app_user_events",
+          "n_columns": 11,
+          "description": ""
+        },
+        {
+          "id": "ds:b2b_customers",
+          "name": "b2b_customers",
+          "n_columns": 12,
+          "description": ""
+        },
+        {
+          "id": "ds:product_inventory",
+          "name": "product_inventory",
+          "n_columns": 10,
+          "description": ""
+        },
+        {
+          "id": "ds:movies_box_office",
+          "name": "movies_box_office",
+          "n_columns": 11,
+          "description": ""
+        },
+        {
+          "id": "ds:population_provinces",
+          "name": "population_provinces",
+          "n_columns": 7,
+          "description": ""
+        },
+        {
+          "id": "ds:fin_pnl_monthly",
+          "name": "fin_pnl_monthly",
+          "n_columns": 10,
+          "description": ""
+        },
+        {
+          "id": "ds:sales_orders_2026",
+          "name": "sales_orders_2026",
+          "n_columns": 12,
+          "description": ""
+        },
+        {
+          "id": "ds:retail_stores",
+          "name": "retail_stores",
+          "n_columns": 11,
+          "description": ""
+        },
+        {
+          "id": "ds:employee_analytics",
+          "name": "employee_analytics",
+          "n_columns": 18,
+          "description": ""
+        },
+        {
+          "id": "ds:shipping_voyages",
+          "name": "shipping_voyages",
+          "n_columns": 12,
+          "description": ""
+        },
+        {
+          "id": "ds:service_tickets",
+          "name": "service_tickets",
+          "n_columns": 13,
+          "description": ""
+        },
+        {
+          "id": "ds:traffic_metro",
+          "name": "traffic_metro",
+          "n_columns": 8,
+          "description": ""
+        },
+        {
+          "id": "ds:marketing_campaigns",
+          "name": "marketing_campaigns",
+          "n_columns": 14,
+          "description": ""
+        },
+        {
+          "id": "ds:weather_cities",
+          "name": "weather_cities",
+          "n_columns": 10,
+          "description": ""
+        },
+        {
+          "id": "ds:operator_arpu",
+          "name": "operator_arpu",
+          "n_columns": 12,
+          "description": ""
+        }
+      ],
+      "column": [
+        {
+          "id": "col:app_user_events.event_id",
+          "name": "event_id",
+          "dataset": "app_user_events",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:app_user_events.user_id",
+          "name": "user_id",
+          "dataset": "app_user_events",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:app_user_events.event_type",
+          "name": "event_type",
+          "dataset": "app_user_events",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:app_user_events.timestamp",
+          "name": "timestamp",
+          "dataset": "app_user_events",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:app_user_events.date",
+          "name": "date",
+          "dataset": "app_user_events",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:app_user_events.hour",
+          "name": "hour",
+          "dataset": "app_user_events",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:app_user_events.platform",
+          "name": "platform",
+          "dataset": "app_user_events",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:app_user_events.app_version",
+          "name": "app_version",
+          "dataset": "app_user_events",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:app_user_events.session_id",
+          "name": "session_id",
+          "dataset": "app_user_events",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:app_user_events.screen",
+          "name": "screen",
+          "dataset": "app_user_events",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:app_user_events.duration_sec",
+          "name": "duration_sec",
+          "dataset": "app_user_events",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:b2b_customers.customer_id",
+          "name": "customer_id",
+          "dataset": "b2b_customers",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:b2b_customers.customer_name",
+          "name": "customer_name",
+          "dataset": "b2b_customers",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:b2b_customers.industry",
+          "name": "industry",
+          "dataset": "b2b_customers",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:b2b_customers.region",
+          "name": "region",
+          "dataset": "b2b_customers",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:b2b_customers.contract_value",
+          "name": "contract_value",
+          "dataset": "b2b_customers",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:b2b_customers.signed_date",
+          "name": "signed_date",
+          "dataset": "b2b_customers",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:b2b_customers.renewal_date",
+          "name": "renewal_date",
+          "dataset": "b2b_customers",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:b2b_customers.last_contact_date",
+          "name": "last_contact_date",
+          "dataset": "b2b_customers",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:b2b_customers.churn_risk",
+          "name": "churn_risk",
+          "dataset": "b2b_customers",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:b2b_customers.account_manager_id",
+          "name": "account_manager_id",
+          "dataset": "b2b_customers",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:b2b_customers.status",
+          "name": "status",
+          "dataset": "b2b_customers",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:b2b_customers.nps_score",
+          "name": "nps_score",
+          "dataset": "b2b_customers",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:product_inventory.sku_id",
+          "name": "sku_id",
+          "dataset": "product_inventory",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:product_inventory.sku_name",
+          "name": "sku_name",
+          "dataset": "product_inventory",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:product_inventory.category",
+          "name": "category",
+          "dataset": "product_inventory",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:product_inventory.warehouse_id",
+          "name": "warehouse_id",
+          "dataset": "product_inventory",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:product_inventory.stock_qty",
+          "name": "stock_qty",
+          "dataset": "product_inventory",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:product_inventory.reorder_point",
+          "name": "reorder_point",
+          "dataset": "product_inventory",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:product_inventory.unit_cost",
+          "name": "unit_cost",
+          "dataset": "product_inventory",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:product_inventory.last_restock_date",
+          "name": "last_restock_date",
+          "dataset": "product_inventory",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:product_inventory.turnover_days",
+          "name": "turnover_days",
+          "dataset": "product_inventory",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:product_inventory.is_low_stock",
+          "name": "is_low_stock",
+          "dataset": "product_inventory",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:movies_box_office.movie_id",
+          "name": "movie_id",
+          "dataset": "movies_box_office",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:movies_box_office.title",
+          "name": "title",
+          "dataset": "movies_box_office",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:movies_box_office.release_year",
+          "name": "release_year",
+          "dataset": "movies_box_office",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:movies_box_office.release_date",
+          "name": "release_date",
+          "dataset": "movies_box_office",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:movies_box_office.genre",
+          "name": "genre",
+          "dataset": "movies_box_office",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:movies_box_office.director",
+          "name": "director",
+          "dataset": "movies_box_office",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:movies_box_office.country",
+          "name": "country",
+          "dataset": "movies_box_office",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:movies_box_office.runtime_min",
+          "name": "runtime_min",
+          "dataset": "movies_box_office",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:movies_box_office.rating",
+          "name": "rating",
+          "dataset": "movies_box_office",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:movies_box_office.opening_weekend_yi",
+          "name": "opening_weekend_yi",
+          "dataset": "movies_box_office",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:movies_box_office.total_box_office_yi",
+          "name": "total_box_office_yi",
+          "dataset": "movies_box_office",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:population_provinces.province",
+          "name": "province",
+          "dataset": "population_provinces",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:population_provinces.year",
+          "name": "year",
+          "dataset": "population_provinces",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:population_provinces.total_population_wan",
+          "name": "total_population_wan",
+          "dataset": "population_provinces",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:population_provinces.age_group",
+          "name": "age_group",
+          "dataset": "population_provinces",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:population_provinces.age_count_wan",
+          "name": "age_count_wan",
+          "dataset": "population_provinces",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:population_provinces.age_pct",
+          "name": "age_pct",
+          "dataset": "population_provinces",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:population_provinces.urban_pct",
+          "name": "urban_pct",
+          "dataset": "population_provinces",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:fin_pnl_monthly.dept_id",
+          "name": "dept_id",
+          "dataset": "fin_pnl_monthly",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:fin_pnl_monthly.dept_name",
+          "name": "dept_name",
+          "dataset": "fin_pnl_monthly",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:fin_pnl_monthly.month",
+          "name": "month",
+          "dataset": "fin_pnl_monthly",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:fin_pnl_monthly.year",
+          "name": "year",
+          "dataset": "fin_pnl_monthly",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:fin_pnl_monthly.period",
+          "name": "period",
+          "dataset": "fin_pnl_monthly",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:fin_pnl_monthly.category",
+          "name": "category",
+          "dataset": "fin_pnl_monthly",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:fin_pnl_monthly.budget",
+          "name": "budget",
+          "dataset": "fin_pnl_monthly",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:fin_pnl_monthly.actual",
+          "name": "actual",
+          "dataset": "fin_pnl_monthly",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:fin_pnl_monthly.variance",
+          "name": "variance",
+          "dataset": "fin_pnl_monthly",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:fin_pnl_monthly.variance_pct",
+          "name": "variance_pct",
+          "dataset": "fin_pnl_monthly",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:sales_orders_2026.order_id",
+          "name": "order_id",
+          "dataset": "sales_orders_2026",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:sales_orders_2026.customer_id",
+          "name": "customer_id",
+          "dataset": "sales_orders_2026",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:sales_orders_2026.region_l1",
+          "name": "region_l1",
+          "dataset": "sales_orders_2026",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:sales_orders_2026.region_l2",
+          "name": "region_l2",
+          "dataset": "sales_orders_2026",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:sales_orders_2026.bu_id",
+          "name": "bu_id",
+          "dataset": "sales_orders_2026",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:sales_orders_2026.product_line",
+          "name": "product_line",
+          "dataset": "sales_orders_2026",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:sales_orders_2026.amount",
+          "name": "amount",
+          "dataset": "sales_orders_2026",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:sales_orders_2026.order_date",
+          "name": "order_date",
+          "dataset": "sales_orders_2026",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:sales_orders_2026.period",
+          "name": "period",
+          "dataset": "sales_orders_2026",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:sales_orders_2026.channel",
+          "name": "channel",
+          "dataset": "sales_orders_2026",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:sales_orders_2026.sales_manager_id",
+          "name": "sales_manager_id",
+          "dataset": "sales_orders_2026",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:sales_orders_2026.status",
+          "name": "status",
+          "dataset": "sales_orders_2026",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:retail_stores.store_id",
+          "name": "store_id",
+          "dataset": "retail_stores",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:retail_stores.store_name",
+          "name": "store_name",
+          "dataset": "retail_stores",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:retail_stores.region",
+          "name": "region",
+          "dataset": "retail_stores",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:retail_stores.city",
+          "name": "city",
+          "dataset": "retail_stores",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:retail_stores.format",
+          "name": "format",
+          "dataset": "retail_stores",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:retail_stores.month",
+          "name": "month",
+          "dataset": "retail_stores",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:retail_stores.weekday_sales",
+          "name": "weekday_sales",
+          "dataset": "retail_stores",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:retail_stores.weekend_sales",
+          "name": "weekend_sales",
+          "dataset": "retail_stores",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:retail_stores.total_sales",
+          "name": "total_sales",
+          "dataset": "retail_stores",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:retail_stores.gross_margin",
+          "name": "gross_margin",
+          "dataset": "retail_stores",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:retail_stores.headcount",
+          "name": "headcount",
+          "dataset": "retail_stores",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:employee_analytics.employee_id",
+          "name": "employee_id",
+          "dataset": "employee_analytics",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:employee_analytics.bu_id",
+          "name": "bu_id",
+          "dataset": "employee_analytics",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:employee_analytics.department",
+          "name": "department",
+          "dataset": "employee_analytics",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:employee_analytics.skill_tags",
+          "name": "skill_tags",
+          "dataset": "employee_analytics",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:employee_analytics.has_ai_skill",
+          "name": "has_ai_skill",
+          "dataset": "employee_analytics",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:employee_analytics.cert_count",
+          "name": "cert_count",
+          "dataset": "employee_analytics",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:employee_analytics.has_cert",
+          "name": "has_cert",
+          "dataset": "employee_analytics",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:employee_analytics.main_cert",
+          "name": "main_cert",
+          "dataset": "employee_analytics",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:employee_analytics.hire_date",
+          "name": "hire_date",
+          "dataset": "employee_analytics",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:employee_analytics.tenure_years",
+          "name": "tenure_years",
+          "dataset": "employee_analytics",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:employee_analytics.manager_id",
+          "name": "manager_id",
+          "dataset": "employee_analytics",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:employee_analytics.performance_score",
+          "name": "performance_score",
+          "dataset": "employee_analytics",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:employee_analytics.salary_band",
+          "name": "salary_band",
+          "dataset": "employee_analytics",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:employee_analytics.region",
+          "name": "region",
+          "dataset": "employee_analytics",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:employee_analytics.gender",
+          "name": "gender",
+          "dataset": "employee_analytics",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:employee_analytics.age",
+          "name": "age",
+          "dataset": "employee_analytics",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:employee_analytics.is_active",
+          "name": "is_active",
+          "dataset": "employee_analytics",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:employee_analytics.leave_date",
+          "name": "leave_date",
+          "dataset": "employee_analytics",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:shipping_voyages.voyage_id",
+          "name": "voyage_id",
+          "dataset": "shipping_voyages",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:shipping_voyages.ship_id",
+          "name": "ship_id",
+          "dataset": "shipping_voyages",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:shipping_voyages.ship_type",
+          "name": "ship_type",
+          "dataset": "shipping_voyages",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:shipping_voyages.departure_port",
+          "name": "departure_port",
+          "dataset": "shipping_voyages",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:shipping_voyages.arrival_port",
+          "name": "arrival_port",
+          "dataset": "shipping_voyages",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:shipping_voyages.departure_time",
+          "name": "departure_time",
+          "dataset": "shipping_voyages",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:shipping_voyages.arrival_time",
+          "name": "arrival_time",
+          "dataset": "shipping_voyages",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:shipping_voyages.distance_nm",
+          "name": "distance_nm",
+          "dataset": "shipping_voyages",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:shipping_voyages.duration_hours",
+          "name": "duration_hours",
+          "dataset": "shipping_voyages",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:shipping_voyages.fuel_consumption_ton",
+          "name": "fuel_consumption_ton",
+          "dataset": "shipping_voyages",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:shipping_voyages.cargo_weight_ton",
+          "name": "cargo_weight_ton",
+          "dataset": "shipping_voyages",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:shipping_voyages.weather_grade",
+          "name": "weather_grade",
+          "dataset": "shipping_voyages",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:service_tickets.ticket_id",
+          "name": "ticket_id",
+          "dataset": "service_tickets",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:service_tickets.customer_id",
+          "name": "customer_id",
+          "dataset": "service_tickets",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:service_tickets.category",
+          "name": "category",
+          "dataset": "service_tickets",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:service_tickets.priority",
+          "name": "priority",
+          "dataset": "service_tickets",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:service_tickets.channel",
+          "name": "channel",
+          "dataset": "service_tickets",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:service_tickets.created_at",
+          "name": "created_at",
+          "dataset": "service_tickets",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:service_tickets.resolved_at",
+          "name": "resolved_at",
+          "dataset": "service_tickets",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:service_tickets.sla_hours",
+          "name": "sla_hours",
+          "dataset": "service_tickets",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:service_tickets.resolution_time_hours",
+          "name": "resolution_time_hours",
+          "dataset": "service_tickets",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:service_tickets.sla_met",
+          "name": "sla_met",
+          "dataset": "service_tickets",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:service_tickets.escalated",
+          "name": "escalated",
+          "dataset": "service_tickets",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:service_tickets.csat_score",
+          "name": "csat_score",
+          "dataset": "service_tickets",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:service_tickets.agent_id",
+          "name": "agent_id",
+          "dataset": "service_tickets",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:traffic_metro.station_id",
+          "name": "station_id",
+          "dataset": "traffic_metro",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:traffic_metro.station_name",
+          "name": "station_name",
+          "dataset": "traffic_metro",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:traffic_metro.line",
+          "name": "line",
+          "dataset": "traffic_metro",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:traffic_metro.date",
+          "name": "date",
+          "dataset": "traffic_metro",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:traffic_metro.hour",
+          "name": "hour",
+          "dataset": "traffic_metro",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:traffic_metro.is_weekend",
+          "name": "is_weekend",
+          "dataset": "traffic_metro",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:traffic_metro.is_holiday",
+          "name": "is_holiday",
+          "dataset": "traffic_metro",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:traffic_metro.passenger_count",
+          "name": "passenger_count",
+          "dataset": "traffic_metro",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:marketing_campaigns.campaign_id",
+          "name": "campaign_id",
+          "dataset": "marketing_campaigns",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:marketing_campaigns.campaign_name",
+          "name": "campaign_name",
+          "dataset": "marketing_campaigns",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:marketing_campaigns.channel",
+          "name": "channel",
+          "dataset": "marketing_campaigns",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:marketing_campaigns.start_date",
+          "name": "start_date",
+          "dataset": "marketing_campaigns",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:marketing_campaigns.end_date",
+          "name": "end_date",
+          "dataset": "marketing_campaigns",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:marketing_campaigns.budget_wan",
+          "name": "budget_wan",
+          "dataset": "marketing_campaigns",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:marketing_campaigns.spend_wan",
+          "name": "spend_wan",
+          "dataset": "marketing_campaigns",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:marketing_campaigns.impressions",
+          "name": "impressions",
+          "dataset": "marketing_campaigns",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:marketing_campaigns.clicks",
+          "name": "clicks",
+          "dataset": "marketing_campaigns",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:marketing_campaigns.ctr_pct",
+          "name": "ctr_pct",
+          "dataset": "marketing_campaigns",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:marketing_campaigns.conversions",
+          "name": "conversions",
+          "dataset": "marketing_campaigns",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:marketing_campaigns.cvr_pct",
+          "name": "cvr_pct",
+          "dataset": "marketing_campaigns",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:marketing_campaigns.revenue_wan",
+          "name": "revenue_wan",
+          "dataset": "marketing_campaigns",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:marketing_campaigns.roi",
+          "name": "roi",
+          "dataset": "marketing_campaigns",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:weather_cities.city",
+          "name": "city",
+          "dataset": "weather_cities",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:weather_cities.year",
+          "name": "year",
+          "dataset": "weather_cities",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:weather_cities.month",
+          "name": "month",
+          "dataset": "weather_cities",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:weather_cities.date",
+          "name": "date",
+          "dataset": "weather_cities",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:weather_cities.avg_temp",
+          "name": "avg_temp",
+          "dataset": "weather_cities",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:weather_cities.max_temp",
+          "name": "max_temp",
+          "dataset": "weather_cities",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:weather_cities.min_temp",
+          "name": "min_temp",
+          "dataset": "weather_cities",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:weather_cities.precipitation_mm",
+          "name": "precipitation_mm",
+          "dataset": "weather_cities",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:weather_cities.humidity_pct",
+          "name": "humidity_pct",
+          "dataset": "weather_cities",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:weather_cities.aqi",
+          "name": "aqi",
+          "dataset": "weather_cities",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:operator_arpu.user_id",
+          "name": "user_id",
+          "dataset": "operator_arpu",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:operator_arpu.plan_code",
+          "name": "plan_code",
+          "dataset": "operator_arpu",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:operator_arpu.cohort",
+          "name": "cohort",
+          "dataset": "operator_arpu",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:operator_arpu.region",
+          "name": "region",
+          "dataset": "operator_arpu",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:operator_arpu.city_tier",
+          "name": "city_tier",
+          "dataset": "operator_arpu",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:operator_arpu.age_group",
+          "name": "age_group",
+          "dataset": "operator_arpu",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:operator_arpu.month",
+          "name": "month",
+          "dataset": "operator_arpu",
+          "dtype": "object",
+          "business_term": ""
+        },
+        {
+          "id": "col:operator_arpu.arpu_value",
+          "name": "arpu_value",
+          "dataset": "operator_arpu",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:operator_arpu.prev_arpu",
+          "name": "prev_arpu",
+          "dataset": "operator_arpu",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:operator_arpu.arpu_change_pct",
+          "name": "arpu_change_pct",
+          "dataset": "operator_arpu",
+          "dtype": "float64",
+          "business_term": ""
+        },
+        {
+          "id": "col:operator_arpu.churn_flag",
+          "name": "churn_flag",
+          "dataset": "operator_arpu",
+          "dtype": "int64",
+          "business_term": ""
+        },
+        {
+          "id": "col:operator_arpu.migration_date",
+          "name": "migration_date",
+          "dataset": "operator_arpu",
+          "dtype": "object",
+          "business_term": ""
+        }
+      ],
+      "term": [
+        {
+          "id": "term:BU@employee_analytics",
+          "name": "BU",
+          "dataset": "employee_analytics",
+          "mapping": {
+            "column": "bu_id",
+            "examples": [
+              "BU-1",
+              "BU-2",
+              "BU-3"
+            ]
+          }
+        },
+        {
+          "id": "term:部门@employee_analytics",
+          "name": "部门",
+          "dataset": "employee_analytics",
+          "mapping": {
+            "column": "department"
+          }
+        },
+        {
+          "id": "term:持证率@employee_analytics",
+          "name": "持证率",
+          "dataset": "employee_analytics",
+          "mapping": {
+            "metric": "AVG(has_cert)",
+            "format": "百分比",
+            "note": "持证员工数 / 总员工数"
+          }
+        },
+        {
+          "id": "term:AI 技能员工@employee_analytics",
+          "name": "AI 技能员工",
+          "dataset": "employee_analytics",
+          "mapping": {
+            "filter": "has_ai_skill = 1"
+          }
+        },
+        {
+          "id": "term:AI/ML 技能@employee_analytics",
+          "name": "AI/ML 技能",
+          "dataset": "employee_analytics",
+          "mapping": {
+            "filter": "has_ai_skill = 1"
+          }
+        },
+        {
+          "id": "term:流动率@employee_analytics",
+          "name": "流动率",
+          "dataset": "employee_analytics",
+          "mapping": {
+            "metric": "1 - AVG(is_active)",
+            "format": "百分比",
+            "note": "已离职员工占比"
+          }
+        },
+        {
+          "id": "term:在职@employee_analytics",
+          "name": "在职",
+          "dataset": "employee_analytics",
+          "mapping": {
+            "filter": "is_active = 1"
+          }
+        },
+        {
+          "id": "term:离职@employee_analytics",
+          "name": "离职",
+          "dataset": "employee_analytics",
+          "mapping": {
+            "filter": "is_active = 0"
+          }
+        },
+        {
+          "id": "term:认证密度@employee_analytics",
+          "name": "认证密度",
+          "dataset": "employee_analytics",
+          "mapping": {
+            "metric": "AVG(cert_count)",
+            "note": "人均证书数"
+          }
+        },
+        {
+          "id": "term:人均产出@employee_analytics",
+          "name": "人均产出",
+          "dataset": "employee_analytics",
+          "mapping": {
+            "metric": "AVG(performance_score)",
+            "note": "绩效平均分"
+          }
+        },
+        {
+          "id": "term:任期@employee_analytics",
+          "name": "任期",
+          "dataset": "employee_analytics",
+          "mapping": {
+            "column": "tenure_years"
+          }
+        },
+        {
+          "id": "term:薪资带@employee_analytics",
+          "name": "薪资带",
+          "dataset": "employee_analytics",
+          "mapping": {
+            "column": "salary_band"
+          }
+        },
+        {
+          "id": "term:成交额@sales_orders_2026",
+          "name": "成交额",
+          "dataset": "sales_orders_2026",
+          "mapping": {
+            "metric": "SUM(amount)",
+            "unit": "万元"
+          }
+        },
+        {
+          "id": "term:订单数@sales_orders_2026",
+          "name": "订单数",
+          "dataset": "sales_orders_2026",
+          "mapping": {
+            "metric": "COUNT(*)"
+          }
+        },
+        {
+          "id": "term:客单价@sales_orders_2026",
+          "name": "客单价",
+          "dataset": "sales_orders_2026",
+          "mapping": {
+            "metric": "AVG(amount)",
+            "unit": "万元"
+          }
+        },
+        {
+          "id": "term:签单@sales_orders_2026",
+          "name": "签单",
+          "dataset": "sales_orders_2026",
+          "mapping": {
+            "filter": "status IN ('closed', 'shipping')"
+          }
+        },
+        {
+          "id": "term:已收款@sales_orders_2026",
+          "name": "已收款",
+          "dataset": "sales_orders_2026",
+          "mapping": {
+            "filter": "status = 'closed'"
+          }
+        },
+        {
+          "id": "term:渠道@sales_orders_2026",
+          "name": "渠道",
+          "dataset": "sales_orders_2026",
+          "mapping": {
+            "column": "channel"
+          }
+        },
+        {
+          "id": "term:直销@sales_orders_2026",
+          "name": "直销",
+          "dataset": "sales_orders_2026",
+          "mapping": {
+            "column": "channel",
+            "value": "直销"
+          }
+        },
+        {
+          "id": "term:渠道集采@sales_orders_2026",
+          "name": "渠道集采",
+          "dataset": "sales_orders_2026",
+          "mapping": {
+            "column": "channel",
+            "value": "项目集采"
+          }
+        },
+        {
+          "id": "term:产品线@sales_orders_2026",
+          "name": "产品线",
+          "dataset": "sales_orders_2026",
+          "mapping": {
+            "column": "product_line"
+          }
+        },
+        {
+          "id": "term:客户经理@sales_orders_2026",
+          "name": "客户经理",
+          "dataset": "sales_orders_2026",
+          "mapping": {
+            "column": "sales_manager_id"
+          }
+        },
+        {
+          "id": "term:Top 客户@sales_orders_2026",
+          "name": "Top 客户",
+          "dataset": "sales_orders_2026",
+          "mapping": {
+            "metric": "SUM(amount)",
+            "group_by": "customer_id",
+            "order": "DESC",
+            "limit": 10
+          }
+        },
+        {
+          "id": "term:预算@fin_pnl_monthly",
+          "name": "预算",
+          "dataset": "fin_pnl_monthly",
+          "mapping": {
+            "column": "budget"
+          }
+        },
+        {
+          "id": "term:实际@fin_pnl_monthly",
+          "name": "实际",
+          "dataset": "fin_pnl_monthly",
+          "mapping": {
+            "column": "actual"
+          }
+        },
+        {
+          "id": "term:偏差@fin_pnl_monthly",
+          "name": "偏差",
+          "dataset": "fin_pnl_monthly",
+          "mapping": {
+            "column": "variance"
+          }
+        },
+        {
+          "id": "term:偏差率@fin_pnl_monthly",
+          "name": "偏差率",
+          "dataset": "fin_pnl_monthly",
+          "mapping": {
+            "column": "variance_pct",
+            "unit": "百分比"
+          }
+        },
+        {
+          "id": "term:超支@fin_pnl_monthly",
+          "name": "超支",
+          "dataset": "fin_pnl_monthly",
+          "mapping": {
+            "filter": "variance > 0"
+          }
+        },
+        {
+          "id": "term:节省@fin_pnl_monthly",
+          "name": "节省",
+          "dataset": "fin_pnl_monthly",
+          "mapping": {
+            "filter": "variance < 0"
+          }
+        },
+        {
+          "id": "term:部门@fin_pnl_monthly",
+          "name": "部门",
+          "dataset": "fin_pnl_monthly",
+          "mapping": {
+            "column": "dept_name"
+          }
+        },
+        {
+          "id": "term:成本@fin_pnl_monthly",
+          "name": "成本",
+          "dataset": "fin_pnl_monthly",
+          "mapping": {
+            "metric": "SUM(actual)"
+          }
+        },
+        {
+          "id": "term:费用类别@fin_pnl_monthly",
+          "name": "费用类别",
+          "dataset": "fin_pnl_monthly",
+          "mapping": {
+            "column": "category"
+          }
+        },
+        {
+          "id": "term:ARPU@operator_arpu",
+          "name": "ARPU",
+          "dataset": "operator_arpu",
+          "mapping": {
+            "column": "arpu_value",
+            "unit": "元/月"
+          }
+        },
+        {
+          "id": "term:ARPU 异常@operator_arpu",
+          "name": "ARPU 异常",
+          "dataset": "operator_arpu",
+          "mapping": {
+            "filter": "arpu_change_pct < -25"
+          }
+        },
+        {
+          "id": "term:套餐@operator_arpu",
+          "name": "套餐",
+          "dataset": "operator_arpu",
+          "mapping": {
+            "column": "plan_code"
+          }
+        },
+        {
+          "id": "term:5G 用户@operator_arpu",
+          "name": "5G 用户",
+          "dataset": "operator_arpu",
+          "mapping": {
+            "filter": "plan_code LIKE 'P-5G-%'"
+          }
+        },
+        {
+          "id": "term:4G 用户@operator_arpu",
+          "name": "4G 用户",
+          "dataset": "operator_arpu",
+          "mapping": {
+            "filter": "plan_code LIKE 'P-4G-%'"
+          }
+        },
+        {
+          "id": "term:迁移群组@operator_arpu",
+          "name": "迁移群组",
+          "dataset": "operator_arpu",
+          "mapping": {
+            "column": "cohort"
+          }
+        },
+        {
+          "id": "term:5G 旧套餐迁移@operator_arpu",
+          "name": "5G 旧套餐迁移",
+          "dataset": "operator_arpu",
+          "mapping": {
+            "column": "cohort",
+            "value": "5G_legacy_migration"
+          }
+        },
+        {
+          "id": "term:流失@operator_arpu",
+          "name": "流失",
+          "dataset": "operator_arpu",
+          "mapping": {
+            "filter": "churn_flag = 1"
+          }
+        },
+        {
+          "id": "term:留存@operator_arpu",
+          "name": "留存",
+          "dataset": "operator_arpu",
+          "mapping": {
+            "filter": "churn_flag = 0"
+          }
+        },
+        {
+          "id": "term:城市层级@operator_arpu",
+          "name": "城市层级",
+          "dataset": "operator_arpu",
+          "mapping": {
+            "column": "city_tier"
+          }
+        },
+        {
+          "id": "term:SLA 达成率@service_tickets",
+          "name": "SLA 达成率",
+          "dataset": "service_tickets",
+          "mapping": {
+            "metric": "AVG(sla_met)",
+            "format": "百分比"
+          }
+        },
+        {
+          "id": "term:首响应时间@service_tickets",
+          "name": "首响应时间",
+          "dataset": "service_tickets",
+          "mapping": {
+            "column": "resolution_time_hours"
+          }
+        },
+        {
+          "id": "term:高优工单@service_tickets",
+          "name": "高优工单",
+          "dataset": "service_tickets",
+          "mapping": {
+            "filter": "priority IN ('P1', 'P2')"
+          }
+        },
+        {
+          "id": "term:投诉@service_tickets",
+          "name": "投诉",
+          "dataset": "service_tickets",
+          "mapping": {
+            "filter": "category = '投诉'"
+          }
+        },
+        {
+          "id": "term:升级率@service_tickets",
+          "name": "升级率",
+          "dataset": "service_tickets",
+          "mapping": {
+            "metric": "AVG(escalated)",
+            "format": "百分比"
+          }
+        },
+        {
+          "id": "term:满意度@service_tickets",
+          "name": "满意度",
+          "dataset": "service_tickets",
+          "mapping": {
+            "metric": "AVG(csat_score)"
+          }
+        },
+        {
+          "id": "term:优先级@service_tickets",
+          "name": "优先级",
+          "dataset": "service_tickets",
+          "mapping": {
+            "column": "priority"
+          }
+        },
+        {
+          "id": "term:合同金额@b2b_customers",
+          "name": "合同金额",
+          "dataset": "b2b_customers",
+          "mapping": {
+            "column": "contract_value",
+            "unit": "万元"
+          }
+        },
+        {
+          "id": "term:续约@b2b_customers",
+          "name": "续约",
+          "dataset": "b2b_customers",
+          "mapping": {
+            "filter": "status = 'renewing'"
+          }
+        },
+        {
+          "id": "term:已流失@b2b_customers",
+          "name": "已流失",
+          "dataset": "b2b_customers",
+          "mapping": {
+            "filter": "status = 'churned'"
+          }
+        },
+        {
+          "id": "term:高流失风险@b2b_customers",
+          "name": "高流失风险",
+          "dataset": "b2b_customers",
+          "mapping": {
+            "filter": "churn_risk = 'high'"
+          }
+        },
+        {
+          "id": "term:行业@b2b_customers",
+          "name": "行业",
+          "dataset": "b2b_customers",
+          "mapping": {
+            "column": "industry"
+          }
+        },
+        {
+          "id": "term:NPS@b2b_customers",
+          "name": "NPS",
+          "dataset": "b2b_customers",
+          "mapping": {
+            "column": "nps_score"
+          }
+        },
+        {
+          "id": "term:金融客户@b2b_customers",
+          "name": "金融客户",
+          "dataset": "b2b_customers",
+          "mapping": {
+            "column": "industry",
+            "value": "金融"
+          }
+        },
+        {
+          "id": "term:周末销售@retail_stores",
+          "name": "周末销售",
+          "dataset": "retail_stores",
+          "mapping": {
+            "column": "weekend_sales"
+          }
+        },
+        {
+          "id": "term:工作日销售@retail_stores",
+          "name": "工作日销售",
+          "dataset": "retail_stores",
+          "mapping": {
+            "column": "weekday_sales"
+          }
+        },
+        {
+          "id": "term:毛利率@retail_stores",
+          "name": "毛利率",
+          "dataset": "retail_stores",
+          "mapping": {
+            "column": "gross_margin",
+            "unit": "百分比"
+          }
+        },
+        {
+          "id": "term:门店类型@retail_stores",
+          "name": "门店类型",
+          "dataset": "retail_stores",
+          "mapping": {
+            "column": "format"
+          }
+        },
+        {
+          "id": "term:旗舰店@retail_stores",
+          "name": "旗舰店",
+          "dataset": "retail_stores",
+          "mapping": {
+            "column": "format",
+            "value": "旗舰店"
+          }
+        },
+        {
+          "id": "term:总销售额@retail_stores",
+          "name": "总销售额",
+          "dataset": "retail_stores",
+          "mapping": {
+            "metric": "SUM(total_sales)"
+          }
+        },
+        {
+          "id": "term:城市@retail_stores",
+          "name": "城市",
+          "dataset": "retail_stores",
+          "mapping": {
+            "column": "city"
+          }
+        },
+        {
+          "id": "term:客流@traffic_metro",
+          "name": "客流",
+          "dataset": "traffic_metro",
+          "mapping": {
+            "column": "passenger_count"
+          }
+        },
+        {
+          "id": "term:高峰时段@traffic_metro",
+          "name": "高峰时段",
+          "dataset": "traffic_metro",
+          "mapping": {
+            "filter": "hour IN (7, 8, 18, 19)"
+          }
+        },
+        {
+          "id": "term:工作日@traffic_metro",
+          "name": "工作日",
+          "dataset": "traffic_metro",
+          "mapping": {
+            "filter": "is_weekend = 0"
+          }
+        },
+        {
+          "id": "term:周末@traffic_metro",
+          "name": "周末",
+          "dataset": "traffic_metro",
+          "mapping": {
+            "filter": "is_weekend = 1"
+          }
+        },
+        {
+          "id": "term:节假日@traffic_metro",
+          "name": "节假日",
+          "dataset": "traffic_metro",
+          "mapping": {
+            "filter": "is_holiday = 1"
+          }
+        },
+        {
+          "id": "term:线路@traffic_metro",
+          "name": "线路",
+          "dataset": "traffic_metro",
+          "mapping": {
+            "column": "line"
+          }
+        },
+        {
+          "id": "term:平均气温@weather_cities",
+          "name": "平均气温",
+          "dataset": "weather_cities",
+          "mapping": {
+            "column": "avg_temp",
+            "unit": "℃"
+          }
+        },
+        {
+          "id": "term:最高气温@weather_cities",
+          "name": "最高气温",
+          "dataset": "weather_cities",
+          "mapping": {
+            "column": "max_temp"
+          }
+        },
+        {
+          "id": "term:最低气温@weather_cities",
+          "name": "最低气温",
+          "dataset": "weather_cities",
+          "mapping": {
+            "column": "min_temp"
+          }
+        },
+        {
+          "id": "term:降水@weather_cities",
+          "name": "降水",
+          "dataset": "weather_cities",
+          "mapping": {
+            "column": "precipitation_mm",
+            "unit": "mm"
+          }
+        },
+        {
+          "id": "term:湿度@weather_cities",
+          "name": "湿度",
+          "dataset": "weather_cities",
+          "mapping": {
+            "column": "humidity_pct",
+            "unit": "百分比"
+          }
+        },
+        {
+          "id": "term:空气质量@weather_cities",
+          "name": "空气质量",
+          "dataset": "weather_cities",
+          "mapping": {
+            "column": "aqi"
+          }
+        },
+        {
+          "id": "term:城市@weather_cities",
+          "name": "城市",
+          "dataset": "weather_cities",
+          "mapping": {
+            "column": "city"
+          }
+        },
+        {
+          "id": "term:总人口@population_provinces",
+          "name": "总人口",
+          "dataset": "population_provinces",
+          "mapping": {
+            "column": "total_population_wan",
+            "unit": "万人"
+          }
+        },
+        {
+          "id": "term:年龄段@population_provinces",
+          "name": "年龄段",
+          "dataset": "population_provinces",
+          "mapping": {
+            "column": "age_group"
+          }
+        },
+        {
+          "id": "term:老龄化@population_provinces",
+          "name": "老龄化",
+          "dataset": "population_provinces",
+          "mapping": {
+            "filter": "age_group = '60+'",
+            "metric": "SUM(age_count_wan) / SUM(total_population_wan)",
+            "format": "百分比"
+          }
+        },
+        {
+          "id": "term:城镇化率@population_provinces",
+          "name": "城镇化率",
+          "dataset": "population_provinces",
+          "mapping": {
+            "column": "urban_pct",
+            "unit": "百分比"
+          }
+        },
+        {
+          "id": "term:省份@population_provinces",
+          "name": "省份",
+          "dataset": "population_provinces",
+          "mapping": {
+            "column": "province"
+          }
+        },
+        {
+          "id": "term:票房@movies_box_office",
+          "name": "票房",
+          "dataset": "movies_box_office",
+          "mapping": {
+            "column": "total_box_office_yi",
+            "unit": "亿元"
+          }
+        },
+        {
+          "id": "term:首周末票房@movies_box_office",
+          "name": "首周末票房",
+          "dataset": "movies_box_office",
+          "mapping": {
+            "column": "opening_weekend_yi"
+          }
+        },
+        {
+          "id": "term:类型@movies_box_office",
+          "name": "类型",
+          "dataset": "movies_box_office",
+          "mapping": {
+            "column": "genre"
+          }
+        },
+        {
+          "id": "term:导演@movies_box_office",
+          "name": "导演",
+          "dataset": "movies_box_office",
+          "mapping": {
+            "column": "director"
+          }
+        },
+        {
+          "id": "term:评分@movies_box_office",
+          "name": "评分",
+          "dataset": "movies_box_office",
+          "mapping": {
+            "column": "rating"
+          }
+        },
+        {
+          "id": "term:上映年份@movies_box_office",
+          "name": "上映年份",
+          "dataset": "movies_box_office",
+          "mapping": {
+            "column": "release_year"
+          }
+        },
+        {
+          "id": "term:时长@movies_box_office",
+          "name": "时长",
+          "dataset": "movies_box_office",
+          "mapping": {
+            "column": "runtime_min",
+            "unit": "分钟"
+          }
+        },
+        {
+          "id": "term:航行时长@shipping_voyages",
+          "name": "航行时长",
+          "dataset": "shipping_voyages",
+          "mapping": {
+            "column": "duration_hours",
+            "unit": "小时"
+          }
+        },
+        {
+          "id": "term:距离@shipping_voyages",
+          "name": "距离",
+          "dataset": "shipping_voyages",
+          "mapping": {
+            "column": "distance_nm",
+            "unit": "海里"
+          }
+        },
+        {
+          "id": "term:船型@shipping_voyages",
+          "name": "船型",
+          "dataset": "shipping_voyages",
+          "mapping": {
+            "column": "ship_type"
+          }
+        },
+        {
+          "id": "term:燃油消耗@shipping_voyages",
+          "name": "燃油消耗",
+          "dataset": "shipping_voyages",
+          "mapping": {
+            "column": "fuel_consumption_ton",
+            "unit": "吨"
+          }
+        },
+        {
+          "id": "term:载货量@shipping_voyages",
+          "name": "载货量",
+          "dataset": "shipping_voyages",
+          "mapping": {
+            "column": "cargo_weight_ton"
+          }
+        },
+        {
+          "id": "term:出发港@shipping_voyages",
+          "name": "出发港",
+          "dataset": "shipping_voyages",
+          "mapping": {
+            "column": "departure_port"
+          }
+        },
+        {
+          "id": "term:到达港@shipping_voyages",
+          "name": "到达港",
+          "dataset": "shipping_voyages",
+          "mapping": {
+            "column": "arrival_port"
+          }
+        },
+        {
+          "id": "term:库存@product_inventory",
+          "name": "库存",
+          "dataset": "product_inventory",
+          "mapping": {
+            "column": "stock_qty"
+          }
+        },
+        {
+          "id": "term:周转天数@product_inventory",
+          "name": "周转天数",
+          "dataset": "product_inventory",
+          "mapping": {
+            "column": "turnover_days",
+            "unit": "天"
+          }
+        },
+        {
+          "id": "term:低库存@product_inventory",
+          "name": "低库存",
+          "dataset": "product_inventory",
+          "mapping": {
+            "filter": "is_low_stock = 1"
+          }
+        },
+        {
+          "id": "term:类目@product_inventory",
+          "name": "类目",
+          "dataset": "product_inventory",
+          "mapping": {
+            "column": "category"
+          }
+        },
+        {
+          "id": "term:仓库@product_inventory",
+          "name": "仓库",
+          "dataset": "product_inventory",
+          "mapping": {
+            "column": "warehouse_id"
+          }
+        },
+        {
+          "id": "term:ROI@marketing_campaigns",
+          "name": "ROI",
+          "dataset": "marketing_campaigns",
+          "mapping": {
+            "column": "roi"
+          }
+        },
+        {
+          "id": "term:点击率@marketing_campaigns",
+          "name": "点击率",
+          "dataset": "marketing_campaigns",
+          "mapping": {
+            "column": "ctr_pct",
+            "unit": "百分比"
+          }
+        },
+        {
+          "id": "term:转化率@marketing_campaigns",
+          "name": "转化率",
+          "dataset": "marketing_campaigns",
+          "mapping": {
+            "column": "cvr_pct",
+            "unit": "百分比"
+          }
+        },
+        {
+          "id": "term:曝光@marketing_campaigns",
+          "name": "曝光",
+          "dataset": "marketing_campaigns",
+          "mapping": {
+            "column": "impressions"
+          }
+        },
+        {
+          "id": "term:渠道@marketing_campaigns",
+          "name": "渠道",
+          "dataset": "marketing_campaigns",
+          "mapping": {
+            "column": "channel"
+          }
+        },
+        {
+          "id": "term:总营收@marketing_campaigns",
+          "name": "总营收",
+          "dataset": "marketing_campaigns",
+          "mapping": {
+            "metric": "SUM(revenue_wan)",
+            "unit": "万元"
+          }
+        },
+        {
+          "id": "term:DAU@app_user_events",
+          "name": "DAU",
+          "dataset": "app_user_events",
+          "mapping": {
+            "metric": "COUNT(DISTINCT user_id)",
+            "group_by": "date",
+            "note": "日活用户"
+          }
+        },
+        {
+          "id": "term:MAU@app_user_events",
+          "name": "MAU",
+          "dataset": "app_user_events",
+          "mapping": {
+            "metric": "COUNT(DISTINCT user_id)",
+            "filter": "date >= CURRENT_DATE - INTERVAL '30 days'"
+          }
+        },
+        {
+          "id": "term:购买事件@app_user_events",
+          "name": "购买事件",
+          "dataset": "app_user_events",
+          "mapping": {
+            "filter": "event_type = 'purchase'"
+          }
+        },
+        {
+          "id": "term:注册@app_user_events",
+          "name": "注册",
+          "dataset": "app_user_events",
+          "mapping": {
+            "filter": "event_type = 'register'"
+          }
+        },
+        {
+          "id": "term:iOS 用户@app_user_events",
+          "name": "iOS 用户",
+          "dataset": "app_user_events",
+          "mapping": {
+            "filter": "platform = 'iOS'"
+          }
+        },
+        {
+          "id": "term:Android 用户@app_user_events",
+          "name": "Android 用户",
+          "dataset": "app_user_events",
+          "mapping": {
+            "filter": "platform = 'Android'"
+          }
+        },
+        {
+          "id": "term:页面@app_user_events",
+          "name": "页面",
+          "dataset": "app_user_events",
+          "mapping": {
+            "column": "screen"
+          }
+        },
+        {
+          "id": "term:今年@global",
+          "name": "今年",
+          "category": "时间",
+          "mapping": {
+            "filter": "YEAR(date) = 2026"
+          }
+        },
+        {
+          "id": "term:去年@global",
+          "name": "去年",
+          "category": "时间",
+          "mapping": {
+            "filter": "YEAR(date) = 2025"
+          }
+        },
+        {
+          "id": "term:Q1@global",
+          "name": "Q1",
+          "category": "时间",
+          "mapping": {
+            "filter": "period = '2026Q1'",
+            "alt_filter": "MONTH(date) BETWEEN 1 AND 3"
+          }
+        },
+        {
+          "id": "term:Q2@global",
+          "name": "Q2",
+          "category": "时间",
+          "mapping": {
+            "filter": "period = '2026Q2'"
+          }
+        },
+        {
+          "id": "term:Q3@global",
+          "name": "Q3",
+          "category": "时间",
+          "mapping": {
+            "filter": "period = '2026Q3'"
+          }
+        },
+        {
+          "id": "term:Q4@global",
+          "name": "Q4",
+          "category": "时间",
+          "mapping": {
+            "filter": "period = '2026Q4'"
+          }
+        },
+        {
+          "id": "term:本月@global",
+          "name": "本月",
+          "category": "时间",
+          "mapping": {
+            "filter": "DATE_TRUNC('month', date) = DATE_TRUNC('month', CURRENT_DATE)"
+          }
+        },
+        {
+          "id": "term:上月@global",
+          "name": "上月",
+          "category": "时间",
+          "mapping": {
+            "filter": "DATE_TRUNC('month', date) = DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')"
+          }
+        },
+        {
+          "id": "term:近 7 天@global",
+          "name": "近 7 天",
+          "category": "时间",
+          "mapping": {
+            "filter": "date >= CURRENT_DATE - INTERVAL '7 days'"
+          }
+        },
+        {
+          "id": "term:近 30 天@global",
+          "name": "近 30 天",
+          "category": "时间",
+          "mapping": {
+            "filter": "date >= CURRENT_DATE - INTERVAL '30 days'"
+          }
+        },
+        {
+          "id": "term:环比@global",
+          "name": "环比",
+          "category": "时间",
+          "mapping": {
+            "compare_type": "qoq",
+            "note": "本期 vs 上期"
+          }
+        },
+        {
+          "id": "term:同比@global",
+          "name": "同比",
+          "category": "时间",
+          "mapping": {
+            "compare_type": "yoy",
+            "note": "本期 vs 去年同期"
+          }
+        },
+        {
+          "id": "term:华南@global",
+          "name": "华南",
+          "category": "区域",
+          "mapping": {
+            "column": "region_l1",
+            "value": "华南"
+          }
+        },
+        {
+          "id": "term:华东@global",
+          "name": "华东",
+          "category": "区域",
+          "mapping": {
+            "column": "region_l1",
+            "value": "华东"
+          }
+        },
+        {
+          "id": "term:华北@global",
+          "name": "华北",
+          "category": "区域",
+          "mapping": {
+            "column": "region_l1",
+            "value": "华北"
+          }
+        },
+        {
+          "id": "term:华中@global",
+          "name": "华中",
+          "category": "区域",
+          "mapping": {
+            "column": "region_l1",
+            "value": "华中"
+          }
+        },
+        {
+          "id": "term:西南@global",
+          "name": "西南",
+          "category": "区域",
+          "mapping": {
+            "column": "region_l1",
+            "value": "西南"
+          }
+        },
+        {
+          "id": "term:东北@global",
+          "name": "东北",
+          "category": "区域",
+          "mapping": {
+            "column": "region_l1",
+            "value": "东北"
+          }
+        },
+        {
+          "id": "term:全国@global",
+          "name": "全国",
+          "category": "区域",
+          "mapping": {
+            "note": "不加区域过滤"
+          }
+        },
+        {
+          "id": "term:一线城市@global",
+          "name": "一线城市",
+          "category": "区域",
+          "mapping": {
+            "column": "city_tier",
+            "value": "T1"
+          }
+        },
+        {
+          "id": "term:二线城市@global",
+          "name": "二线城市",
+          "category": "区域",
+          "mapping": {
+            "column": "city_tier",
+            "value": "T2"
+          }
+        }
+      ]
+    },
+    "edges": {
+      "has_column": [
+        {
+          "from": "ds:app_user_events",
+          "to": "col:app_user_events.event_id"
+        },
+        {
+          "from": "ds:app_user_events",
+          "to": "col:app_user_events.user_id"
+        },
+        {
+          "from": "ds:app_user_events",
+          "to": "col:app_user_events.event_type"
+        },
+        {
+          "from": "ds:app_user_events",
+          "to": "col:app_user_events.timestamp"
+        },
+        {
+          "from": "ds:app_user_events",
+          "to": "col:app_user_events.date"
+        },
+        {
+          "from": "ds:app_user_events",
+          "to": "col:app_user_events.hour"
+        },
+        {
+          "from": "ds:app_user_events",
+          "to": "col:app_user_events.platform"
+        },
+        {
+          "from": "ds:app_user_events",
+          "to": "col:app_user_events.app_version"
+        },
+        {
+          "from": "ds:app_user_events",
+          "to": "col:app_user_events.session_id"
+        },
+        {
+          "from": "ds:app_user_events",
+          "to": "col:app_user_events.screen"
+        },
+        {
+          "from": "ds:app_user_events",
+          "to": "col:app_user_events.duration_sec"
+        },
+        {
+          "from": "ds:b2b_customers",
+          "to": "col:b2b_customers.customer_id"
+        },
+        {
+          "from": "ds:b2b_customers",
+          "to": "col:b2b_customers.customer_name"
+        },
+        {
+          "from": "ds:b2b_customers",
+          "to": "col:b2b_customers.industry"
+        },
+        {
+          "from": "ds:b2b_customers",
+          "to": "col:b2b_customers.region"
+        },
+        {
+          "from": "ds:b2b_customers",
+          "to": "col:b2b_customers.contract_value"
+        },
+        {
+          "from": "ds:b2b_customers",
+          "to": "col:b2b_customers.signed_date"
+        },
+        {
+          "from": "ds:b2b_customers",
+          "to": "col:b2b_customers.renewal_date"
+        },
+        {
+          "from": "ds:b2b_customers",
+          "to": "col:b2b_customers.last_contact_date"
+        },
+        {
+          "from": "ds:b2b_customers",
+          "to": "col:b2b_customers.churn_risk"
+        },
+        {
+          "from": "ds:b2b_customers",
+          "to": "col:b2b_customers.account_manager_id"
+        },
+        {
+          "from": "ds:b2b_customers",
+          "to": "col:b2b_customers.status"
+        },
+        {
+          "from": "ds:b2b_customers",
+          "to": "col:b2b_customers.nps_score"
+        },
+        {
+          "from": "ds:product_inventory",
+          "to": "col:product_inventory.sku_id"
+        },
+        {
+          "from": "ds:product_inventory",
+          "to": "col:product_inventory.sku_name"
+        },
+        {
+          "from": "ds:product_inventory",
+          "to": "col:product_inventory.category"
+        },
+        {
+          "from": "ds:product_inventory",
+          "to": "col:product_inventory.warehouse_id"
+        },
+        {
+          "from": "ds:product_inventory",
+          "to": "col:product_inventory.stock_qty"
+        },
+        {
+          "from": "ds:product_inventory",
+          "to": "col:product_inventory.reorder_point"
+        },
+        {
+          "from": "ds:product_inventory",
+          "to": "col:product_inventory.unit_cost"
+        },
+        {
+          "from": "ds:product_inventory",
+          "to": "col:product_inventory.last_restock_date"
+        },
+        {
+          "from": "ds:product_inventory",
+          "to": "col:product_inventory.turnover_days"
+        },
+        {
+          "from": "ds:product_inventory",
+          "to": "col:product_inventory.is_low_stock"
+        },
+        {
+          "from": "ds:movies_box_office",
+          "to": "col:movies_box_office.movie_id"
+        },
+        {
+          "from": "ds:movies_box_office",
+          "to": "col:movies_box_office.title"
+        },
+        {
+          "from": "ds:movies_box_office",
+          "to": "col:movies_box_office.release_year"
+        },
+        {
+          "from": "ds:movies_box_office",
+          "to": "col:movies_box_office.release_date"
+        },
+        {
+          "from": "ds:movies_box_office",
+          "to": "col:movies_box_office.genre"
+        },
+        {
+          "from": "ds:movies_box_office",
+          "to": "col:movies_box_office.director"
+        },
+        {
+          "from": "ds:movies_box_office",
+          "to": "col:movies_box_office.country"
+        },
+        {
+          "from": "ds:movies_box_office",
+          "to": "col:movies_box_office.runtime_min"
+        },
+        {
+          "from": "ds:movies_box_office",
+          "to": "col:movies_box_office.rating"
+        },
+        {
+          "from": "ds:movies_box_office",
+          "to": "col:movies_box_office.opening_weekend_yi"
+        },
+        {
+          "from": "ds:movies_box_office",
+          "to": "col:movies_box_office.total_box_office_yi"
+        },
+        {
+          "from": "ds:population_provinces",
+          "to": "col:population_provinces.province"
+        },
+        {
+          "from": "ds:population_provinces",
+          "to": "col:population_provinces.year"
+        },
+        {
+          "from": "ds:population_provinces",
+          "to": "col:population_provinces.total_population_wan"
+        },
+        {
+          "from": "ds:population_provinces",
+          "to": "col:population_provinces.age_group"
+        },
+        {
+          "from": "ds:population_provinces",
+          "to": "col:population_provinces.age_count_wan"
+        },
+        {
+          "from": "ds:population_provinces",
+          "to": "col:population_provinces.age_pct"
+        },
+        {
+          "from": "ds:population_provinces",
+          "to": "col:population_provinces.urban_pct"
+        },
+        {
+          "from": "ds:fin_pnl_monthly",
+          "to": "col:fin_pnl_monthly.dept_id"
+        },
+        {
+          "from": "ds:fin_pnl_monthly",
+          "to": "col:fin_pnl_monthly.dept_name"
+        },
+        {
+          "from": "ds:fin_pnl_monthly",
+          "to": "col:fin_pnl_monthly.month"
+        },
+        {
+          "from": "ds:fin_pnl_monthly",
+          "to": "col:fin_pnl_monthly.year"
+        },
+        {
+          "from": "ds:fin_pnl_monthly",
+          "to": "col:fin_pnl_monthly.period"
+        },
+        {
+          "from": "ds:fin_pnl_monthly",
+          "to": "col:fin_pnl_monthly.category"
+        },
+        {
+          "from": "ds:fin_pnl_monthly",
+          "to": "col:fin_pnl_monthly.budget"
+        },
+        {
+          "from": "ds:fin_pnl_monthly",
+          "to": "col:fin_pnl_monthly.actual"
+        },
+        {
+          "from": "ds:fin_pnl_monthly",
+          "to": "col:fin_pnl_monthly.variance"
+        },
+        {
+          "from": "ds:fin_pnl_monthly",
+          "to": "col:fin_pnl_monthly.variance_pct"
+        },
+        {
+          "from": "ds:sales_orders_2026",
+          "to": "col:sales_orders_2026.order_id"
+        },
+        {
+          "from": "ds:sales_orders_2026",
+          "to": "col:sales_orders_2026.customer_id"
+        },
+        {
+          "from": "ds:sales_orders_2026",
+          "to": "col:sales_orders_2026.region_l1"
+        },
+        {
+          "from": "ds:sales_orders_2026",
+          "to": "col:sales_orders_2026.region_l2"
+        },
+        {
+          "from": "ds:sales_orders_2026",
+          "to": "col:sales_orders_2026.bu_id"
+        },
+        {
+          "from": "ds:sales_orders_2026",
+          "to": "col:sales_orders_2026.product_line"
+        },
+        {
+          "from": "ds:sales_orders_2026",
+          "to": "col:sales_orders_2026.amount"
+        },
+        {
+          "from": "ds:sales_orders_2026",
+          "to": "col:sales_orders_2026.order_date"
+        },
+        {
+          "from": "ds:sales_orders_2026",
+          "to": "col:sales_orders_2026.period"
+        },
+        {
+          "from": "ds:sales_orders_2026",
+          "to": "col:sales_orders_2026.channel"
+        },
+        {
+          "from": "ds:sales_orders_2026",
+          "to": "col:sales_orders_2026.sales_manager_id"
+        },
+        {
+          "from": "ds:sales_orders_2026",
+          "to": "col:sales_orders_2026.status"
+        },
+        {
+          "from": "ds:retail_stores",
+          "to": "col:retail_stores.store_id"
+        },
+        {
+          "from": "ds:retail_stores",
+          "to": "col:retail_stores.store_name"
+        },
+        {
+          "from": "ds:retail_stores",
+          "to": "col:retail_stores.region"
+        },
+        {
+          "from": "ds:retail_stores",
+          "to": "col:retail_stores.city"
+        },
+        {
+          "from": "ds:retail_stores",
+          "to": "col:retail_stores.format"
+        },
+        {
+          "from": "ds:retail_stores",
+          "to": "col:retail_stores.month"
+        },
+        {
+          "from": "ds:retail_stores",
+          "to": "col:retail_stores.weekday_sales"
+        },
+        {
+          "from": "ds:retail_stores",
+          "to": "col:retail_stores.weekend_sales"
+        },
+        {
+          "from": "ds:retail_stores",
+          "to": "col:retail_stores.total_sales"
+        },
+        {
+          "from": "ds:retail_stores",
+          "to": "col:retail_stores.gross_margin"
+        },
+        {
+          "from": "ds:retail_stores",
+          "to": "col:retail_stores.headcount"
+        },
+        {
+          "from": "ds:employee_analytics",
+          "to": "col:employee_analytics.employee_id"
+        },
+        {
+          "from": "ds:employee_analytics",
+          "to": "col:employee_analytics.bu_id"
+        },
+        {
+          "from": "ds:employee_analytics",
+          "to": "col:employee_analytics.department"
+        },
+        {
+          "from": "ds:employee_analytics",
+          "to": "col:employee_analytics.skill_tags"
+        },
+        {
+          "from": "ds:employee_analytics",
+          "to": "col:employee_analytics.has_ai_skill"
+        },
+        {
+          "from": "ds:employee_analytics",
+          "to": "col:employee_analytics.cert_count"
+        },
+        {
+          "from": "ds:employee_analytics",
+          "to": "col:employee_analytics.has_cert"
+        },
+        {
+          "from": "ds:employee_analytics",
+          "to": "col:employee_analytics.main_cert"
+        },
+        {
+          "from": "ds:employee_analytics",
+          "to": "col:employee_analytics.hire_date"
+        },
+        {
+          "from": "ds:employee_analytics",
+          "to": "col:employee_analytics.tenure_years"
+        },
+        {
+          "from": "ds:employee_analytics",
+          "to": "col:employee_analytics.manager_id"
+        },
+        {
+          "from": "ds:employee_analytics",
+          "to": "col:employee_analytics.performance_score"
+        },
+        {
+          "from": "ds:employee_analytics",
+          "to": "col:employee_analytics.salary_band"
+        },
+        {
+          "from": "ds:employee_analytics",
+          "to": "col:employee_analytics.region"
+        },
+        {
+          "from": "ds:employee_analytics",
+          "to": "col:employee_analytics.gender"
+        },
+        {
+          "from": "ds:employee_analytics",
+          "to": "col:employee_analytics.age"
+        },
+        {
+          "from": "ds:employee_analytics",
+          "to": "col:employee_analytics.is_active"
+        },
+        {
+          "from": "ds:employee_analytics",
+          "to": "col:employee_analytics.leave_date"
+        },
+        {
+          "from": "ds:shipping_voyages",
+          "to": "col:shipping_voyages.voyage_id"
+        },
+        {
+          "from": "ds:shipping_voyages",
+          "to": "col:shipping_voyages.ship_id"
+        },
+        {
+          "from": "ds:shipping_voyages",
+          "to": "col:shipping_voyages.ship_type"
+        },
+        {
+          "from": "ds:shipping_voyages",
+          "to": "col:shipping_voyages.departure_port"
+        },
+        {
+          "from": "ds:shipping_voyages",
+          "to": "col:shipping_voyages.arrival_port"
+        },
+        {
+          "from": "ds:shipping_voyages",
+          "to": "col:shipping_voyages.departure_time"
+        },
+        {
+          "from": "ds:shipping_voyages",
+          "to": "col:shipping_voyages.arrival_time"
+        },
+        {
+          "from": "ds:shipping_voyages",
+          "to": "col:shipping_voyages.distance_nm"
+        },
+        {
+          "from": "ds:shipping_voyages",
+          "to": "col:shipping_voyages.duration_hours"
+        },
+        {
+          "from": "ds:shipping_voyages",
+          "to": "col:shipping_voyages.fuel_consumption_ton"
+        },
+        {
+          "from": "ds:shipping_voyages",
+          "to": "col:shipping_voyages.cargo_weight_ton"
+        },
+        {
+          "from": "ds:shipping_voyages",
+          "to": "col:shipping_voyages.weather_grade"
+        },
+        {
+          "from": "ds:service_tickets",
+          "to": "col:service_tickets.ticket_id"
+        },
+        {
+          "from": "ds:service_tickets",
+          "to": "col:service_tickets.customer_id"
+        },
+        {
+          "from": "ds:service_tickets",
+          "to": "col:service_tickets.category"
+        },
+        {
+          "from": "ds:service_tickets",
+          "to": "col:service_tickets.priority"
+        },
+        {
+          "from": "ds:service_tickets",
+          "to": "col:service_tickets.channel"
+        },
+        {
+          "from": "ds:service_tickets",
+          "to": "col:service_tickets.created_at"
+        },
+        {
+          "from": "ds:service_tickets",
+          "to": "col:service_tickets.resolved_at"
+        },
+        {
+          "from": "ds:service_tickets",
+          "to": "col:service_tickets.sla_hours"
+        },
+        {
+          "from": "ds:service_tickets",
+          "to": "col:service_tickets.resolution_time_hours"
+        },
+        {
+          "from": "ds:service_tickets",
+          "to": "col:service_tickets.sla_met"
+        },
+        {
+          "from": "ds:service_tickets",
+          "to": "col:service_tickets.escalated"
+        },
+        {
+          "from": "ds:service_tickets",
+          "to": "col:service_tickets.csat_score"
+        },
+        {
+          "from": "ds:service_tickets",
+          "to": "col:service_tickets.agent_id"
+        },
+        {
+          "from": "ds:traffic_metro",
+          "to": "col:traffic_metro.station_id"
+        },
+        {
+          "from": "ds:traffic_metro",
+          "to": "col:traffic_metro.station_name"
+        },
+        {
+          "from": "ds:traffic_metro",
+          "to": "col:traffic_metro.line"
+        },
+        {
+          "from": "ds:traffic_metro",
+          "to": "col:traffic_metro.date"
+        },
+        {
+          "from": "ds:traffic_metro",
+          "to": "col:traffic_metro.hour"
+        },
+        {
+          "from": "ds:traffic_metro",
+          "to": "col:traffic_metro.is_weekend"
+        },
+        {
+          "from": "ds:traffic_metro",
+          "to": "col:traffic_metro.is_holiday"
+        },
+        {
+          "from": "ds:traffic_metro",
+          "to": "col:traffic_metro.passenger_count"
+        },
+        {
+          "from": "ds:marketing_campaigns",
+          "to": "col:marketing_campaigns.campaign_id"
+        },
+        {
+          "from": "ds:marketing_campaigns",
+          "to": "col:marketing_campaigns.campaign_name"
+        },
+        {
+          "from": "ds:marketing_campaigns",
+          "to": "col:marketing_campaigns.channel"
+        },
+        {
+          "from": "ds:marketing_campaigns",
+          "to": "col:marketing_campaigns.start_date"
+        },
+        {
+          "from": "ds:marketing_campaigns",
+          "to": "col:marketing_campaigns.end_date"
+        },
+        {
+          "from": "ds:marketing_campaigns",
+          "to": "col:marketing_campaigns.budget_wan"
+        },
+        {
+          "from": "ds:marketing_campaigns",
+          "to": "col:marketing_campaigns.spend_wan"
+        },
+        {
+          "from": "ds:marketing_campaigns",
+          "to": "col:marketing_campaigns.impressions"
+        },
+        {
+          "from": "ds:marketing_campaigns",
+          "to": "col:marketing_campaigns.clicks"
+        },
+        {
+          "from": "ds:marketing_campaigns",
+          "to": "col:marketing_campaigns.ctr_pct"
+        },
+        {
+          "from": "ds:marketing_campaigns",
+          "to": "col:marketing_campaigns.conversions"
+        },
+        {
+          "from": "ds:marketing_campaigns",
+          "to": "col:marketing_campaigns.cvr_pct"
+        },
+        {
+          "from": "ds:marketing_campaigns",
+          "to": "col:marketing_campaigns.revenue_wan"
+        },
+        {
+          "from": "ds:marketing_campaigns",
+          "to": "col:marketing_campaigns.roi"
+        },
+        {
+          "from": "ds:weather_cities",
+          "to": "col:weather_cities.city"
+        },
+        {
+          "from": "ds:weather_cities",
+          "to": "col:weather_cities.year"
+        },
+        {
+          "from": "ds:weather_cities",
+          "to": "col:weather_cities.month"
+        },
+        {
+          "from": "ds:weather_cities",
+          "to": "col:weather_cities.date"
+        },
+        {
+          "from": "ds:weather_cities",
+          "to": "col:weather_cities.avg_temp"
+        },
+        {
+          "from": "ds:weather_cities",
+          "to": "col:weather_cities.max_temp"
+        },
+        {
+          "from": "ds:weather_cities",
+          "to": "col:weather_cities.min_temp"
+        },
+        {
+          "from": "ds:weather_cities",
+          "to": "col:weather_cities.precipitation_mm"
+        },
+        {
+          "from": "ds:weather_cities",
+          "to": "col:weather_cities.humidity_pct"
+        },
+        {
+          "from": "ds:weather_cities",
+          "to": "col:weather_cities.aqi"
+        },
+        {
+          "from": "ds:operator_arpu",
+          "to": "col:operator_arpu.user_id"
+        },
+        {
+          "from": "ds:operator_arpu",
+          "to": "col:operator_arpu.plan_code"
+        },
+        {
+          "from": "ds:operator_arpu",
+          "to": "col:operator_arpu.cohort"
+        },
+        {
+          "from": "ds:operator_arpu",
+          "to": "col:operator_arpu.region"
+        },
+        {
+          "from": "ds:operator_arpu",
+          "to": "col:operator_arpu.city_tier"
+        },
+        {
+          "from": "ds:operator_arpu",
+          "to": "col:operator_arpu.age_group"
+        },
+        {
+          "from": "ds:operator_arpu",
+          "to": "col:operator_arpu.month"
+        },
+        {
+          "from": "ds:operator_arpu",
+          "to": "col:operator_arpu.arpu_value"
+        },
+        {
+          "from": "ds:operator_arpu",
+          "to": "col:operator_arpu.prev_arpu"
+        },
+        {
+          "from": "ds:operator_arpu",
+          "to": "col:operator_arpu.arpu_change_pct"
+        },
+        {
+          "from": "ds:operator_arpu",
+          "to": "col:operator_arpu.churn_flag"
+        },
+        {
+          "from": "ds:operator_arpu",
+          "to": "col:operator_arpu.migration_date"
+        }
+      ],
+      "maps_to": [
+        {
+          "from": "term:BU@employee_analytics",
+          "to": "col:employee_analytics.bu_id"
+        },
+        {
+          "from": "term:部门@employee_analytics",
+          "to": "col:employee_analytics.department"
+        },
+        {
+          "from": "term:任期@employee_analytics",
+          "to": "col:employee_analytics.tenure_years"
+        },
+        {
+          "from": "term:薪资带@employee_analytics",
+          "to": "col:employee_analytics.salary_band"
+        },
+        {
+          "from": "term:渠道@sales_orders_2026",
+          "to": "col:sales_orders_2026.channel"
+        },
+        {
+          "from": "term:直销@sales_orders_2026",
+          "to": "col:sales_orders_2026.channel"
+        },
+        {
+          "from": "term:渠道集采@sales_orders_2026",
+          "to": "col:sales_orders_2026.channel"
+        },
+        {
+          "from": "term:产品线@sales_orders_2026",
+          "to": "col:sales_orders_2026.product_line"
+        },
+        {
+          "from": "term:客户经理@sales_orders_2026",
+          "to": "col:sales_orders_2026.sales_manager_id"
+        },
+        {
+          "from": "term:预算@fin_pnl_monthly",
+          "to": "col:fin_pnl_monthly.budget"
+        },
+        {
+          "from": "term:实际@fin_pnl_monthly",
+          "to": "col:fin_pnl_monthly.actual"
+        },
+        {
+          "from": "term:偏差@fin_pnl_monthly",
+          "to": "col:fin_pnl_monthly.variance"
+        },
+        {
+          "from": "term:偏差率@fin_pnl_monthly",
+          "to": "col:fin_pnl_monthly.variance_pct"
+        },
+        {
+          "from": "term:部门@fin_pnl_monthly",
+          "to": "col:fin_pnl_monthly.dept_name"
+        },
+        {
+          "from": "term:费用类别@fin_pnl_monthly",
+          "to": "col:fin_pnl_monthly.category"
+        },
+        {
+          "from": "term:ARPU@operator_arpu",
+          "to": "col:operator_arpu.arpu_value"
+        },
+        {
+          "from": "term:套餐@operator_arpu",
+          "to": "col:operator_arpu.plan_code"
+        },
+        {
+          "from": "term:迁移群组@operator_arpu",
+          "to": "col:operator_arpu.cohort"
+        },
+        {
+          "from": "term:5G 旧套餐迁移@operator_arpu",
+          "to": "col:operator_arpu.cohort"
+        },
+        {
+          "from": "term:城市层级@operator_arpu",
+          "to": "col:operator_arpu.city_tier"
+        },
+        {
+          "from": "term:首响应时间@service_tickets",
+          "to": "col:service_tickets.resolution_time_hours"
+        },
+        {
+          "from": "term:优先级@service_tickets",
+          "to": "col:service_tickets.priority"
+        },
+        {
+          "from": "term:合同金额@b2b_customers",
+          "to": "col:b2b_customers.contract_value"
+        },
+        {
+          "from": "term:行业@b2b_customers",
+          "to": "col:b2b_customers.industry"
+        },
+        {
+          "from": "term:NPS@b2b_customers",
+          "to": "col:b2b_customers.nps_score"
+        },
+        {
+          "from": "term:金融客户@b2b_customers",
+          "to": "col:b2b_customers.industry"
+        },
+        {
+          "from": "term:周末销售@retail_stores",
+          "to": "col:retail_stores.weekend_sales"
+        },
+        {
+          "from": "term:工作日销售@retail_stores",
+          "to": "col:retail_stores.weekday_sales"
+        },
+        {
+          "from": "term:毛利率@retail_stores",
+          "to": "col:retail_stores.gross_margin"
+        },
+        {
+          "from": "term:门店类型@retail_stores",
+          "to": "col:retail_stores.format"
+        },
+        {
+          "from": "term:旗舰店@retail_stores",
+          "to": "col:retail_stores.format"
+        },
+        {
+          "from": "term:城市@retail_stores",
+          "to": "col:retail_stores.city"
+        },
+        {
+          "from": "term:客流@traffic_metro",
+          "to": "col:traffic_metro.passenger_count"
+        },
+        {
+          "from": "term:线路@traffic_metro",
+          "to": "col:traffic_metro.line"
+        },
+        {
+          "from": "term:平均气温@weather_cities",
+          "to": "col:weather_cities.avg_temp"
+        },
+        {
+          "from": "term:最高气温@weather_cities",
+          "to": "col:weather_cities.max_temp"
+        },
+        {
+          "from": "term:最低气温@weather_cities",
+          "to": "col:weather_cities.min_temp"
+        },
+        {
+          "from": "term:降水@weather_cities",
+          "to": "col:weather_cities.precipitation_mm"
+        },
+        {
+          "from": "term:湿度@weather_cities",
+          "to": "col:weather_cities.humidity_pct"
+        },
+        {
+          "from": "term:空气质量@weather_cities",
+          "to": "col:weather_cities.aqi"
+        },
+        {
+          "from": "term:城市@weather_cities",
+          "to": "col:weather_cities.city"
+        },
+        {
+          "from": "term:总人口@population_provinces",
+          "to": "col:population_provinces.total_population_wan"
+        },
+        {
+          "from": "term:年龄段@population_provinces",
+          "to": "col:population_provinces.age_group"
+        },
+        {
+          "from": "term:城镇化率@population_provinces",
+          "to": "col:population_provinces.urban_pct"
+        },
+        {
+          "from": "term:省份@population_provinces",
+          "to": "col:population_provinces.province"
+        },
+        {
+          "from": "term:票房@movies_box_office",
+          "to": "col:movies_box_office.total_box_office_yi"
+        },
+        {
+          "from": "term:首周末票房@movies_box_office",
+          "to": "col:movies_box_office.opening_weekend_yi"
+        },
+        {
+          "from": "term:类型@movies_box_office",
+          "to": "col:movies_box_office.genre"
+        },
+        {
+          "from": "term:导演@movies_box_office",
+          "to": "col:movies_box_office.director"
+        },
+        {
+          "from": "term:评分@movies_box_office",
+          "to": "col:movies_box_office.rating"
+        },
+        {
+          "from": "term:上映年份@movies_box_office",
+          "to": "col:movies_box_office.release_year"
+        },
+        {
+          "from": "term:时长@movies_box_office",
+          "to": "col:movies_box_office.runtime_min"
+        },
+        {
+          "from": "term:航行时长@shipping_voyages",
+          "to": "col:shipping_voyages.duration_hours"
+        },
+        {
+          "from": "term:距离@shipping_voyages",
+          "to": "col:shipping_voyages.distance_nm"
+        },
+        {
+          "from": "term:船型@shipping_voyages",
+          "to": "col:shipping_voyages.ship_type"
+        },
+        {
+          "from": "term:燃油消耗@shipping_voyages",
+          "to": "col:shipping_voyages.fuel_consumption_ton"
+        },
+        {
+          "from": "term:载货量@shipping_voyages",
+          "to": "col:shipping_voyages.cargo_weight_ton"
+        },
+        {
+          "from": "term:出发港@shipping_voyages",
+          "to": "col:shipping_voyages.departure_port"
+        },
+        {
+          "from": "term:到达港@shipping_voyages",
+          "to": "col:shipping_voyages.arrival_port"
+        },
+        {
+          "from": "term:库存@product_inventory",
+          "to": "col:product_inventory.stock_qty"
+        },
+        {
+          "from": "term:周转天数@product_inventory",
+          "to": "col:product_inventory.turnover_days"
+        },
+        {
+          "from": "term:类目@product_inventory",
+          "to": "col:product_inventory.category"
+        },
+        {
+          "from": "term:仓库@product_inventory",
+          "to": "col:product_inventory.warehouse_id"
+        },
+        {
+          "from": "term:ROI@marketing_campaigns",
+          "to": "col:marketing_campaigns.roi"
+        },
+        {
+          "from": "term:点击率@marketing_campaigns",
+          "to": "col:marketing_campaigns.ctr_pct"
+        },
+        {
+          "from": "term:转化率@marketing_campaigns",
+          "to": "col:marketing_campaigns.cvr_pct"
+        },
+        {
+          "from": "term:曝光@marketing_campaigns",
+          "to": "col:marketing_campaigns.impressions"
+        },
+        {
+          "from": "term:渠道@marketing_campaigns",
+          "to": "col:marketing_campaigns.channel"
+        },
+        {
+          "from": "term:页面@app_user_events",
+          "to": "col:app_user_events.screen"
+        }
+      ],
+      "synonym_of": [
+        {
+          "from": "term:人员",
+          "to": "term:员工"
+        },
+        {
+          "from": "term:雇员",
+          "to": "term:员工"
+        },
+        {
+          "from": "term:成员",
+          "to": "term:员工"
+        },
+        {
+          "from": "term:认证",
+          "to": "term:证书"
+        },
+        {
+          "from": "term:资格证",
+          "to": "term:证书"
+        },
+        {
+          "from": "term:认证",
+          "to": "term:持证"
+        },
+        {
+          "from": "term:拿证",
+          "to": "term:持证"
+        },
+        {
+          "from": "term:AI",
+          "to": "term:AI/ML"
+        },
+        {
+          "from": "term:人工智能",
+          "to": "term:AI/ML"
+        },
+        {
+          "from": "term:机器学习",
+          "to": "term:AI/ML"
+        },
+        {
+          "from": "term:营收",
+          "to": "term:销售额"
+        },
+        {
+          "from": "term:收入",
+          "to": "term:销售额"
+        },
+        {
+          "from": "term:成交额",
+          "to": "term:销售额"
+        },
+        {
+          "from": "term:甲方",
+          "to": "term:客户"
+        },
+        {
+          "from": "term:用户",
+          "to": "term:客户"
+        },
+        {
+          "from": "term:资费",
+          "to": "term:套餐"
+        },
+        {
+          "from": "term:package",
+          "to": "term:套餐"
+        },
+        {
+          "from": "term:plan",
+          "to": "term:套餐"
+        },
+        {
+          "from": "term:case",
+          "to": "term:工单"
+        },
+        {
+          "from": "term:ticket",
+          "to": "term:工单"
+        },
+        {
+          "from": "term:案子",
+          "to": "term:工单"
+        },
+        {
+          "from": "term:店铺",
+          "to": "term:门店"
+        },
+        {
+          "from": "term:店面",
+          "to": "term:门店"
+        },
+        {
+          "from": "term:人流",
+          "to": "term:客流"
+        },
+        {
+          "from": "term:passenger",
+          "to": "term:客流"
+        },
+        {
+          "from": "term:温度",
+          "to": "term:气温"
+        },
+        {
+          "from": "term:box office",
+          "to": "term:票房"
+        },
+        {
+          "from": "term:船只",
+          "to": "term:船"
+        },
+        {
+          "from": "term:船舶",
+          "to": "term:船"
+        },
+        {
+          "from": "term:vessel",
+          "to": "term:船"
+        },
+        {
+          "from": "term:campaign",
+          "to": "term:活动"
+        },
+        {
+          "from": "term:DAU",
+          "to": "term:活跃用户"
+        },
+        {
+          "from": "term:active user",
+          "to": "term:活跃用户"
+        },
+        {
+          "from": "term:上升",
+          "to": "term:增长"
+        },
+        {
+          "from": "term:上涨",
+          "to": "term:增长"
+        },
+        {
+          "from": "term:升高",
+          "to": "term:增长"
+        },
+        {
+          "from": "term:下滑",
+          "to": "term:下降"
+        },
+        {
+          "from": "term:降低",
+          "to": "term:下降"
+        },
+        {
+          "from": "term:缩水",
+          "to": "term:下降"
+        },
+        {
+          "from": "term:比例",
+          "to": "term:占比"
+        },
+        {
+          "from": "term:比率",
+          "to": "term:占比"
+        }
+      ]
+    }
+  },
+  "communities": [
+    {
+      "id": "community_hr",
+      "name": "人力资源分析",
+      "summary": "员工技能、认证、流动率、人均产出的多维分析；适合月度 HR 复盘、组织能力评估、培训需求识别。",
+      "datasets": [
+        "employee_analytics"
+      ],
+      "key_terms": [
+        "BU",
+        "持证率",
+        "流动率",
+        "认证密度",
+        "人均产出",
+        "AI/ML 技能",
+        "技能"
+      ],
+      "all_terms": [
+        "AI/ML 技能",
+        "部门",
+        "持证率",
+        "AI 技能员工",
+        "离职",
+        "人均产出",
+        "流动率",
+        "BU",
+        "在职",
+        "认证密度",
+        "薪资带",
+        "任期",
+        "技能"
+      ],
+      "all_columns": [
+        "employee_analytics.employee_id",
+        "employee_analytics.bu_id",
+        "employee_analytics.department",
+        "employee_analytics.skill_tags",
+        "employee_analytics.has_ai_skill",
+        "employee_analytics.cert_count",
+        "employee_analytics.has_cert",
+        "employee_analytics.main_cert",
+        "employee_analytics.hire_date",
+        "employee_analytics.tenure_years",
+        "employee_analytics.manager_id",
+        "employee_analytics.performance_score",
+        "employee_analytics.salary_band",
+        "employee_analytics.region",
+        "employee_analytics.gender",
+        "employee_analytics.age",
+        "employee_analytics.is_active",
+        "employee_analytics.leave_date"
+      ],
+      "typical_questions": [
+        "BU-3 流动率为什么高",
+        "AI/ML 技能员工持证率",
+        "各 BU 人均产出对比"
+      ],
+      "search_text": "人力资源分析 员工技能、认证、流动率、人均产出的多维分析；适合月度 HR 复盘、组织能力评估、培训需求识别。 employee_analytics BU 持证率 流动率 认证密度 人均产出 AI/ML 技能 技能 BU 部门 持证率 AI 技能员工 AI/ML 技能 流动率 在职 离职 认证密度 人均产出 任期 薪资带 BU-3 流动率为什么高 AI/ML 技能员工持证率 各 BU 人均产出对比"
+    },
+    {
+      "id": "community_sales",
+      "name": "销售归因与漏斗",
+      "summary": "订单×部门×区域×渠道的销售归因；适合区域复盘、BU 拖累分析、季度同比/环比变化解读。",
+      "datasets": [
+        "sales_orders_2026",
+        "fin_pnl_monthly"
+      ],
+      "key_terms": [
+        "成交额",
+        "区域",
+        "Q1",
+        "BU",
+        "客户经理",
+        "渠道",
+        "环比",
+        "同比"
+      ],
+      "all_terms": [
+        "产品线",
+        "客户经理",
+        "环比",
+        "超支",
+        "渠道",
+        "Top 客户",
+        "成本",
+        "偏差率",
+        "区域",
+        "客单价",
+        "节省",
+        "费用类别",
+        "同比",
+        "偏差",
+        "直销",
+        "渠道集采",
+        "预算",
+        "签单",
+        "部门",
+        "订单数",
+        "已收款",
+        "实际",
+        "Q1",
+        "成交额",
+        "BU"
+      ],
+      "all_columns": [
+        "sales_orders_2026.order_id",
+        "sales_orders_2026.customer_id",
+        "sales_orders_2026.region_l1",
+        "sales_orders_2026.region_l2",
+        "sales_orders_2026.bu_id",
+        "sales_orders_2026.product_line",
+        "sales_orders_2026.amount",
+        "sales_orders_2026.order_date",
+        "sales_orders_2026.period",
+        "sales_orders_2026.channel",
+        "sales_orders_2026.sales_manager_id",
+        "sales_orders_2026.status",
+        "fin_pnl_monthly.dept_id",
+        "fin_pnl_monthly.dept_name",
+        "fin_pnl_monthly.month",
+        "fin_pnl_monthly.year",
+        "fin_pnl_monthly.period",
+        "fin_pnl_monthly.category",
+        "fin_pnl_monthly.budget",
+        "fin_pnl_monthly.actual",
+        "fin_pnl_monthly.variance",
+        "fin_pnl_monthly.variance_pct"
+      ],
+      "typical_questions": [
+        "Q1 华南销售为什么下滑",
+        "哪些 BU 拖累最大",
+        "对比直销和渠道的成交额"
+      ],
+      "search_text": "销售归因与漏斗 订单×部门×区域×渠道的销售归因；适合区域复盘、BU 拖累分析、季度同比/环比变化解读。 sales_orders_2026 fin_pnl_monthly 成交额 区域 Q1 BU 客户经理 渠道 环比 同比 成交额 订单数 客单价 签单 已收款 渠道 直销 渠道集采 产品线 客户经理 Top 客户 预算 实际 偏差 偏差率 超支 节省 部门 成本 费用类别 Q1 华南销售为什么下滑 哪些 BU 拖累最大 对比直销和渠道的成交额"
+    },
+    {
+      "id": "community_finance",
+      "name": "财务预算与成本",
+      "summary": "部门 × 月预算执行偏差；适合季度预算审议、超支识别、成本优化分析。",
+      "datasets": [
+        "fin_pnl_monthly"
+      ],
+      "key_terms": [
+        "预算",
+        "实际",
+        "偏差",
+        "超支",
+        "部门",
+        "成本",
+        "费用类别"
+      ],
+      "all_terms": [
+        "费用类别",
+        "节省",
+        "部门",
+        "偏差",
+        "超支",
+        "实际",
+        "成本",
+        "预算",
+        "偏差率"
+      ],
+      "all_columns": [
+        "fin_pnl_monthly.dept_id",
+        "fin_pnl_monthly.dept_name",
+        "fin_pnl_monthly.month",
+        "fin_pnl_monthly.year",
+        "fin_pnl_monthly.period",
+        "fin_pnl_monthly.category",
+        "fin_pnl_monthly.budget",
+        "fin_pnl_monthly.actual",
+        "fin_pnl_monthly.variance",
+        "fin_pnl_monthly.variance_pct"
+      ],
+      "typical_questions": [
+        "哪个部门超支最严重",
+        "Q1 预算偏差总览",
+        "外包成本占比"
+      ],
+      "search_text": "财务预算与成本 部门 × 月预算执行偏差；适合季度预算审议、超支识别、成本优化分析。 fin_pnl_monthly 预算 实际 偏差 超支 部门 成本 费用类别 预算 实际 偏差 偏差率 超支 节省 部门 成本 费用类别 哪个部门超支最严重 Q1 预算偏差总览 外包成本占比"
+    },
+    {
+      "id": "community_operator",
+      "name": "运营商用户与套餐",
+      "summary": "用户 ARPU 时序 + 套餐迁移 cohort + SLA 工单；适合套餐变更影响评估、流失预警、客户分层。",
+      "datasets": [
+        "operator_arpu",
+        "service_tickets"
+      ],
+      "key_terms": [
+        "ARPU",
+        "套餐",
+        "迁移",
+        "5G",
+        "4G",
+        "异常下跌",
+        "流失",
+        "城市层级"
+      ],
+      "all_terms": [
+        "ARPU",
+        "首响应时间",
+        "流失",
+        "升级率",
+        "4G 用户",
+        "迁移",
+        "高优工单",
+        "异常下跌",
+        "SLA 达成率",
+        "4G",
+        "城市层级",
+        "满意度",
+        "优先级",
+        "迁移群组",
+        "5G",
+        "留存",
+        "套餐",
+        "5G 旧套餐迁移",
+        "5G 用户",
+        "投诉",
+        "ARPU 异常"
+      ],
+      "all_columns": [
+        "operator_arpu.user_id",
+        "operator_arpu.plan_code",
+        "operator_arpu.cohort",
+        "operator_arpu.region",
+        "operator_arpu.city_tier",
+        "operator_arpu.age_group",
+        "operator_arpu.month",
+        "operator_arpu.arpu_value",
+        "operator_arpu.prev_arpu",
+        "operator_arpu.arpu_change_pct",
+        "operator_arpu.churn_flag",
+        "operator_arpu.migration_date",
+        "service_tickets.ticket_id",
+        "service_tickets.customer_id",
+        "service_tickets.category",
+        "service_tickets.priority",
+        "service_tickets.channel",
+        "service_tickets.created_at",
+        "service_tickets.resolved_at",
+        "service_tickets.sla_hours",
+        "service_tickets.resolution_time_hours",
+        "service_tickets.sla_met",
+        "service_tickets.escalated",
+        "service_tickets.csat_score",
+        "service_tickets.agent_id"
+      ],
+      "typical_questions": [
+        "哪些用户 ARPU 异常下跌",
+        "5G 套餐迁移影响",
+        "高优工单 SLA 达成率"
+      ],
+      "search_text": "运营商用户与套餐 用户 ARPU 时序 + 套餐迁移 cohort + SLA 工单；适合套餐变更影响评估、流失预警、客户分层。 operator_arpu service_tickets ARPU 套餐 迁移 5G 4G 异常下跌 流失 城市层级 ARPU ARPU 异常 套餐 5G 用户 4G 用户 迁移群组 5G 旧套餐迁移 流失 留存 城市层级 SLA 达成率 首响应时间 高优工单 投诉 升级率 满意度 优先级 哪些用户 ARPU 异常下跌 5G 套餐迁移影响 高优工单 SLA 达成率"
+    },
+    {
+      "id": "community_retail",
+      "name": "零售门店与营销",
+      "summary": "门店销售 × 营销 ROI × 库存周转的协同分析；适合区域门店对比、营销活动效果评估、库存优化。",
+      "datasets": [
+        "retail_stores",
+        "marketing_campaigns",
+        "product_inventory"
+      ],
+      "key_terms": [
+        "门店",
+        "工作日",
+        "周末",
+        "毛利率",
+        "ROI",
+        "渠道",
+        "库存",
+        "周转"
+      ],
+      "all_terms": [
+        "总营收",
+        "转化率",
+        "工作日销售",
+        "总销售额",
+        "曝光",
+        "渠道",
+        "工作日",
+        "毛利率",
+        "周转",
+        "门店",
+        "城市",
+        "类目",
+        "ROI",
+        "周末",
+        "旗舰店",
+        "低库存",
+        "仓库",
+        "库存",
+        "门店类型",
+        "周末销售",
+        "周转天数",
+        "点击率"
+      ],
+      "all_columns": [
+        "retail_stores.store_id",
+        "retail_stores.store_name",
+        "retail_stores.region",
+        "retail_stores.city",
+        "retail_stores.format",
+        "retail_stores.month",
+        "retail_stores.weekday_sales",
+        "retail_stores.weekend_sales",
+        "retail_stores.total_sales",
+        "retail_stores.gross_margin",
+        "retail_stores.headcount",
+        "marketing_campaigns.campaign_id",
+        "marketing_campaigns.campaign_name",
+        "marketing_campaigns.channel",
+        "marketing_campaigns.start_date",
+        "marketing_campaigns.end_date",
+        "marketing_campaigns.budget_wan",
+        "marketing_campaigns.spend_wan",
+        "marketing_campaigns.impressions",
+        "marketing_campaigns.clicks",
+        "marketing_campaigns.ctr_pct",
+        "marketing_campaigns.conversions",
+        "marketing_campaigns.cvr_pct",
+        "marketing_campaigns.revenue_wan",
+        "marketing_campaigns.roi",
+        "product_inventory.sku_id",
+        "product_inventory.sku_name",
+        "product_inventory.category",
+        "product_inventory.warehouse_id",
+        "product_inventory.stock_qty",
+        "product_inventory.reorder_point",
+        "product_inventory.unit_cost",
+        "product_inventory.last_restock_date",
+        "product_inventory.turnover_days",
+        "product_inventory.is_low_stock"
+      ],
+      "typical_questions": [
+        "东西部门店销售对比",
+        "ROI 最高的营销渠道",
+        "库存周转 Top 类目"
+      ],
+      "search_text": "零售门店与营销 门店销售 × 营销 ROI × 库存周转的协同分析；适合区域门店对比、营销活动效果评估、库存优化。 retail_stores marketing_campaigns product_inventory 门店 工作日 周末 毛利率 ROI 渠道 库存 周转 周末销售 工作日销售 毛利率 门店类型 旗舰店 总销售额 城市 ROI 点击率 转化率 曝光 渠道 总营收 库存 周转天数 低库存 类目 仓库 东西部门店销售对比 ROI 最高的营销渠道 库存周转 Top 类目"
+    },
+    {
+      "id": "community_industry",
+      "name": "行业与宏观洞察",
+      "summary": "宏观数据集合：票房 / 气象 / 人口 / 试航 / 交通 / 应用事件 / 客户管理；用于行业研究、长期趋势探索、跨域关联挖掘。",
+      "datasets": [
+        "movies_box_office",
+        "weather_cities",
+        "population_provinces",
+        "shipping_voyages",
+        "traffic_metro",
+        "app_user_events",
+        "b2b_customers"
+      ],
+      "key_terms": [
+        "票房",
+        "气温",
+        "人口",
+        "老龄化",
+        "客流",
+        "DAU",
+        "续约",
+        "客户"
+      ],
+      "all_terms": [
+        "导演",
+        "船型",
+        "已流失",
+        "最低气温",
+        "线路",
+        "续约",
+        "合同金额",
+        "工作日",
+        "评分",
+        "空气质量",
+        "行业",
+        "气温",
+        "时长",
+        "老龄化",
+        "城市",
+        "票房",
+        "周末",
+        "iOS 用户",
+        "距离",
+        "省份",
+        "金融客户",
+        "DAU",
+        "降水",
+        "节假日",
+        "出发港",
+        "上映年份",
+        "最高气温",
+        "页面",
+        "航行时长",
+        "湿度",
+        "城镇化率",
+        "客流",
+        "年龄段",
+        "平均气温",
+        "高流失风险",
+        "MAU",
+        "总人口",
+        "首周末票房",
+        "客户",
+        "载货量",
+        "Android 用户",
+        "NPS",
+        "高峰时段",
+        "到达港",
+        "类型",
+        "人口",
+        "注册",
+        "购买事件",
+        "燃油消耗"
+      ],
+      "all_columns": [
+        "movies_box_office.movie_id",
+        "movies_box_office.title",
+        "movies_box_office.release_year",
+        "movies_box_office.release_date",
+        "movies_box_office.genre",
+        "movies_box_office.director",
+        "movies_box_office.country",
+        "movies_box_office.runtime_min",
+        "movies_box_office.rating",
+        "movies_box_office.opening_weekend_yi",
+        "movies_box_office.total_box_office_yi",
+        "weather_cities.city",
+        "weather_cities.year",
+        "weather_cities.month",
+        "weather_cities.date",
+        "weather_cities.avg_temp",
+        "weather_cities.max_temp",
+        "weather_cities.min_temp",
+        "weather_cities.precipitation_mm",
+        "weather_cities.humidity_pct",
+        "weather_cities.aqi",
+        "population_provinces.province",
+        "population_provinces.year",
+        "population_provinces.total_population_wan",
+        "population_provinces.age_group",
+        "population_provinces.age_count_wan",
+        "population_provinces.age_pct",
+        "population_provinces.urban_pct",
+        "shipping_voyages.voyage_id",
+        "shipping_voyages.ship_id",
+        "shipping_voyages.ship_type",
+        "shipping_voyages.departure_port",
+        "shipping_voyages.arrival_port",
+        "shipping_voyages.departure_time",
+        "shipping_voyages.arrival_time",
+        "shipping_voyages.distance_nm",
+        "shipping_voyages.duration_hours",
+        "shipping_voyages.fuel_consumption_ton",
+        "shipping_voyages.cargo_weight_ton",
+        "shipping_voyages.weather_grade",
+        "traffic_metro.station_id",
+        "traffic_metro.station_name",
+        "traffic_metro.line",
+        "traffic_metro.date",
+        "traffic_metro.hour",
+        "traffic_metro.is_weekend",
+        "traffic_metro.is_holiday",
+        "traffic_metro.passenger_count",
+        "app_user_events.event_id",
+        "app_user_events.user_id",
+        "app_user_events.event_type",
+        "app_user_events.timestamp",
+        "app_user_events.date",
+        "app_user_events.hour",
+        "app_user_events.platform",
+        "app_user_events.app_version",
+        "app_user_events.session_id",
+        "app_user_events.screen",
+        "app_user_events.duration_sec",
+        "b2b_customers.customer_id",
+        "b2b_customers.customer_name",
+        "b2b_customers.industry",
+        "b2b_customers.region",
+        "b2b_customers.contract_value",
+        "b2b_customers.signed_date",
+        "b2b_customers.renewal_date",
+        "b2b_customers.last_contact_date",
+        "b2b_customers.churn_risk",
+        "b2b_customers.account_manager_id",
+        "b2b_customers.status",
+        "b2b_customers.nps_score"
+      ],
+      "typical_questions": [
+        "近 5 年北京 7 月气温走势",
+        "2023 年票房 Top 10",
+        "老龄化最严重的省份",
+        "客户流失早期信号"
+      ],
+      "search_text": "行业与宏观洞察 宏观数据集合：票房 / 气象 / 人口 / 试航 / 交通 / 应用事件 / 客户管理；用于行业研究、长期趋势探索、跨域关联挖掘。 movies_box_office weather_cities population_provinces shipping_voyages traffic_metro app_user_events b2b_customers 票房 气温 人口 老龄化 客流 DAU 续约 客户 票房 首周末票房 类型 导演 评分 上映年份 时长 平均气温 最高气温 最低气温 降水 湿度 空气质量 城市 总人口 年龄段 老龄化 城镇化率 省份 航行时长 距离 船型 燃油消耗 载货量 出发港 到达港 客流 高峰时段 工作日 周末 节假日 线路 DAU MAU 购买事件 注册 iOS 用户 Android 用户 页面 合同金额 续约 已流失 高流失风险 行业 NPS 金融客户 近 5 年北京 7 月气温走势 2023 年票房 Top 10 老龄化最严重的省份 客户流失早期信号"
+    }
+  ],
+  "stats": {
+    "n_datasets": 15,
+    "n_columns": 171,
+    "n_terms": 134,
+    "n_communities": 6
+  }
+}
