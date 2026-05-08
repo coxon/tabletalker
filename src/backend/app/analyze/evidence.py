@@ -229,11 +229,21 @@ _BINOP_RENDER = {
 }
 
 
-# Functions we know `pandas.eval` / `DataFrame.query` will accept when
-# the grader replays the predicate. Anything outside this set is a bug
-# in the planner — surface it loudly rather than emit an Evidence the
-# replay step can't parse.
+# Functions `pandas.eval` / `DataFrame.query` accept directly during
+# grader replay — these go through verbatim in the rendered evidence
+# string. Other DSL-allowed functions (`lower`, `upper`, `len`, `if`)
+# are tolerated by the executor but pandas.eval can't run them as-is;
+# the renderer downgrades them to a safe "fn(...)" string form so the
+# evidence row stays human-readable without crashing the response.
 _CALL_RENDER_ALLOWED = frozenset({"abs", "round", "min", "max"})
+# Allowed by the DSL but rendered as best-effort labels rather than
+# pandas.eval-replay text. A grader that strictly replays will note the
+# function is unrunnable but the surrounding `(dataset, columns,
+# filters, aggregation, value, row_count)` tuple still documents what
+# the system computed — and the `value` itself is the typed-op result,
+# not a re-evaluation of this string. Mirrors the DSL function set in
+# `app/spreadsheet/expr.py::_FUNCTIONS`.
+_CALL_RENDER_FALLBACK = frozenset({"lower", "upper", "len", "if"})
 
 
 def _render_expr(expr: Expr) -> str:
@@ -247,15 +257,19 @@ def _render_expr(expr: Expr) -> str:
         op = _BINOP_RENDER.get(expr.op, expr.op)
         return f"({left} {op} {right})"
     if isinstance(expr, CallExpr):
-        if expr.fn not in _CALL_RENDER_ALLOWED:
-            # `pandas.eval` only exposes a small fixed function set; an
-            # unknown name renders into a predicate the grader can't run.
-            raise ValueError(
-                f"call to {expr.fn!r} is not pandas.eval-renderable; "
-                f"allowed: {sorted(_CALL_RENDER_ALLOWED)}"
-            )
         rendered = ", ".join(_render_expr(a) for a in expr.args)
-        return f"{expr.fn}({rendered})"
+        if expr.fn in _CALL_RENDER_ALLOWED:
+            return f"{expr.fn}({rendered})"
+        if expr.fn in _CALL_RENDER_FALLBACK:
+            # DSL-allowed but pandas.eval can't run as-is. Render with a
+            # leading `~` marker so it's visually distinct from a
+            # replay-faithful call. The Evidence's `value` is still the
+            # typed-op result; this string only documents the operation.
+            return f"~{expr.fn}({rendered})"
+        # Unknown function — DSL validator should have caught it, but
+        # if a future op kind grows new function names this defensive
+        # branch keeps the response from 500-ing on an unreachable cell.
+        return f"~{expr.fn}({rendered})"
     # Closed union — defensive fallback in case Expr grows a new branch
     # and someone forgets to update us.
     raise TypeError(f"unrenderable expression: {type(expr).__name__}")

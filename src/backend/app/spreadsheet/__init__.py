@@ -9,8 +9,8 @@ defined in `docs/submission-contract.md`). It is the internal audit
 layer: PR #4's analyze pipeline calls into the executor so every
 evidence tuple `(filters, aggregation, value, row_count)` reaches the
 contract response with structured provenance, not regex-extracted from
-raw pandas source. See `docs/architecture.md` §4 ("Why both ReAct and
-a typed plan?") for the full design rationale.
+raw pandas source. See `docs/architecture.md` §4 ("Why typed plans instead
+of ReAct code execution?") for the full design rationale.
 
 Internal naming uses `Spreadsheet*`; the user-facing trace is rendered
 as `TableVerse`s — see `verse.py`.

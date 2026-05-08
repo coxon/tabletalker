@@ -37,6 +37,45 @@ def test_join_inner(ctx: SpreadsheetContext, regions_df: pd.DataFrame) -> None:
     assert len(merged) == 5  # all sales rows have a matching region
 
 
+def test_join_preserves_left_column_names(ctx: SpreadsheetContext) -> None:
+    ctx.put(
+        "left",
+        pd.DataFrame(
+            {
+                "country": ["CN", "US"],
+                "gdp_trillion_usd": [18.6, 29.2],
+            }
+        ),
+    )
+    ctx.put(
+        "right",
+        pd.DataFrame(
+            {
+                "country": ["CN", "US"],
+                "gdp_trillion_usd": [17.8, 27.7],
+            }
+        ),
+    )
+
+    handle_join(
+        JoinOp(
+            kind="join",
+            out="joined",
+            left="left",
+            right="right",
+            on=["country"],
+            how="inner",
+        ),
+        ctx,
+    )
+
+    joined = ctx.get("joined")
+    assert "gdp_trillion_usd" in joined.columns
+    assert "gdp_trillion_usd_right" in joined.columns
+    assert "gdp_trillion_usd_x" not in joined.columns
+    assert "gdp_trillion_usd_y" not in joined.columns
+
+
 def test_pivot_then_melt_round_trip(ctx: SpreadsheetContext) -> None:
     handle_pivot(
         PivotOp(

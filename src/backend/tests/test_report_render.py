@@ -31,7 +31,13 @@ def _evidence(value: float | int | str = 100) -> Evidence:
 
 
 def test_renders_three_chart_types_for_grouped_table() -> None:
-    """A 3-row group_by → bar + line + pie. Anchors all live in the HTML."""
+    """A 3-row group_by → bar + line + pie + scatter + heatmap. Anchors
+    all live in the HTML.
+
+    Boxplot needs ≥4 distinct points (see render._select_and_build_charts);
+    the 3-row case here covers everything except box. The 4+-row case is
+    exercised by test_emits_box_when_distribution_has_spread below.
+    """
 
     answer = _table_answer(
         rows=[
@@ -53,13 +59,62 @@ def test_renders_three_chart_types_for_grouped_table() -> None:
     )
 
     types = {c.type for c in rendered.charts}
-    assert types == {"柱状图", "折线图", "饼图", "散点图"}, types
+    assert types == {"柱状图", "折线图", "饼图", "散点图", "热力图"}, types
     for chart in rendered.charts:
         anchor_id = chart.html_anchor.lstrip("#")
         # Every chart's id has to materialise as an `id="..."` in the doc.
         assert f'id="{anchor_id}"' in rendered.html
     assert "测试摘要" in rendered.html
     assert "开拓华东市场" in rendered.html
+
+
+def test_emits_box_when_distribution_has_spread() -> None:
+    """Boxplot kicks in for ≥4 rows with non-zero spread — 5-number summary
+    is meaningful. Outlier-detection lane (additional scatter series) is
+    inside the chart option, not a separate chart entry."""
+
+    answer = _table_answer(
+        rows=[
+            {"region": f"R{i}", "total": v}
+            for i, v in enumerate([10, 22, 30, 18, 95])
+        ],
+        columns=["region", "total"],
+    )
+    rendered = render_report(
+        report_id="eval_box_001",
+        title="区域销售分布",
+        summary="箱线图覆盖",
+        findings=[Finding(title="x", detail="y", evidence=[_evidence(10)])],
+        recommendations=[],
+        is_refusal=False,
+        answer=answer,
+    )
+    types = {c.type for c in rendered.charts}
+    assert "箱线图" in types, types
+    box_anchor = next(
+        c.html_anchor.lstrip("#") for c in rendered.charts if c.type == "箱线图"
+    )
+    assert f'id="{box_anchor}"' in rendered.html
+
+
+def test_skips_box_when_all_values_equal() -> None:
+    """A flat distribution (zero spread) should not draw a degenerate box."""
+
+    answer = _table_answer(
+        rows=[{"region": f"R{i}", "total": 10} for i in range(5)],
+        columns=["region", "total"],
+    )
+    rendered = render_report(
+        report_id="eval_flat_001",
+        title="平坦",
+        summary="x",
+        findings=[Finding(title="x", detail="y", evidence=[_evidence(10)])],
+        recommendations=[],
+        is_refusal=False,
+        answer=answer,
+    )
+    types = {c.type for c in rendered.charts}
+    assert "箱线图" not in types
 
 
 def test_refusal_renders_chartless_html() -> None:

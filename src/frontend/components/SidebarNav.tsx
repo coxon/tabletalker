@@ -11,11 +11,11 @@ import {
 } from "lucide-react";
 
 const NAV_ITEMS = [
-  { href: "/v2", icon: Home, label: "首页", desc: "数据分析" },
-  { href: "/v2/history", icon: History, label: "历史记录", desc: "查看所有会话" },
-  { href: "/v2/batch", icon: Layers, label: "批量处理", desc: "多文件批量分析" },
-  { href: "/v2/reports", icon: PieChart, label: "报告中心", desc: "查看生成报告" },
-  { href: "/v2/status", icon: Activity, label: "系统状态", desc: "服务健康与版本" },
+  { href: "/", icon: Home, label: "首页", desc: "数据分析" },
+  { href: "/history", icon: History, label: "历史记录", desc: "查看所有会话" },
+  { href: "/batch", icon: Layers, label: "批量处理", desc: "多文件批量分析" },
+  { href: "/reports", icon: PieChart, label: "报告中心", desc: "查看生成报告" },
+  { href: "/status", icon: Activity, label: "系统状态", desc: "服务健康与版本" },
 ];
 
 export function SidebarNav() {
@@ -25,8 +25,8 @@ export function SidebarNav() {
     <nav className="flex-1 px-4 space-y-1">
       {NAV_ITEMS.map((item) => {
         const isActive =
-          item.href === "/v2"
-            ? pathname === "/v2"
+          item.href === "/"
+            ? pathname === "/"
             : pathname.startsWith(item.href);
 
         return (

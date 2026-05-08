@@ -31,11 +31,25 @@ class PlanValidationError(Exception):
 class OpExecutionError(Exception):
     """An op handler raised. Wraps the underlying error with op context."""
 
-    def __init__(self, op_index: int, op: Op, cause: BaseException) -> None:
+    def __init__(
+        self,
+        op_index: int,
+        op: Op,
+        cause: BaseException,
+        *,
+        input_shape: dict[str, tuple[int, int] | None] | None = None,
+    ) -> None:
         super().__init__(f"op #{op_index} ({op.kind} → {op.out}) failed: {cause}")
         self.op_index = op_index
         self.op = op
         self.cause = cause
+        # `input_shape` maps each register-input name (e.g. "src", "left",
+        # "right") to its `(rows, cols)` if the producer was a DataFrame, or
+        # `None` if the slot held something else (a GroupBy, render payload,
+        # or wasn't resolvable). Surfaces in the analyze handler's log line
+        # and in the AnalyzeFailure detail so 422 root-cause analysis from
+        # the eval run JSON doesn't require backend-log access.
+        self.input_shape = input_shape or {}
 
 
 @dataclass
@@ -67,7 +81,14 @@ def execute(plan: Plan, workspace: Path) -> ExecutionReport:
         try:
             result = handler(op, ctx)  # type: ignore[arg-type]
         except Exception as exc:
-            raise OpExecutionError(index, op, exc) from exc
+            # Capture frame shapes for each register-input *before* re-raising
+            # so the API-layer log / AnalyzeFailure detail can show "step 8
+            # (add_column) on shape=(rows, cols)" instead of just the bare
+            # exception. Doing this here (not in the API layer) is necessary
+            # because `ctx` is local to the executor and goes out of scope
+            # after we return.
+            input_shape = _capture_input_shape(op, ctx)
+            raise OpExecutionError(index, op, exc, input_shape=input_shape) from exc
         result.ms = (time.perf_counter() - started) * 1000
 
         op_results.append(result)
@@ -158,3 +179,37 @@ def _input_fields(op: Op) -> tuple[str, ...]:
     """
 
     return op.op_inputs
+
+
+def _capture_input_shape(
+    op: Op, ctx: SpreadsheetContext
+) -> dict[str, tuple[int, int] | None]:
+    """Return `(rows, cols)` for each register-input that holds a DataFrame.
+
+    Only DataFrames have a meaningful shape; GroupBy / render-payload slots
+    return `None`. This is best-effort diagnostic data — the wrapping
+    `OpExecutionError` keeps the original exception, so even if shape capture
+    raises (e.g. a custom slot type without a `.shape` attr) we silently fall
+    back to `None` rather than mask the real failure with a debug-instrument
+    crash.
+    """
+
+    shapes: dict[str, tuple[int, int] | None] = {}
+    for field in _input_fields(op):
+        ref = getattr(op, field, None)
+        if not isinstance(ref, str) or ref not in ctx.register:
+            continue
+        value = ctx.register[ref]
+        try:
+            shape = getattr(value, "shape", None)
+        except Exception:
+            shape = None
+        if (
+            isinstance(shape, tuple)
+            and len(shape) == 2
+            and all(isinstance(n, int) for n in shape)
+        ):
+            shapes[field] = (int(shape[0]), int(shape[1]))
+        else:
+            shapes[field] = None
+    return shapes

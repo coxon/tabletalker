@@ -1,40 +1,33 @@
 # AGENTS.md — TableTalker
 
-A data analysis agent: takes structured data (CSV/Excel) and a natural-language
-request, produces an interactive HTML report, supports follow-up questions.
+TableTalker 是一个结构化数据智能分析 Agent：接收 CSV / Excel 文件和自然语言问题，
+产出交互式 HTML 报告，并支持追问。
 
-## Rules
+## 项目规则
 
-1. **Required submission directories** (per organizer spec):
-   `src/` · `架构文档/` · `运行脚本/` · `演示视频/` · `自测报告/`.
-   `docs/` and `tests/` are kept for project completeness.
+1. **提交目录必须保留。** 按组委会要求，仓库根目录必须包含：
+   `src/`、`架构文档/`、`运行脚本/`、`演示视频/`、`自测报告/`。
+   `docs/` 和 `knowledge-base/` 是工程补充目录；测试在 `src/backend/tests/`。
 
-2. **Self-test file is sacred.** `自测报告/latest_evaluation_metrics.md`
-   must exist at the repo root path with that exact name — the organizer's
-   auto-grader reads it directly. Missing file = 0 score. Numbers in it are
-   measured, not estimated; see `docs/refusal-policy.md` §"why we don't
-   fake metrics".
+2. **自测报告文件名不可改。** `自测报告/latest_evaluation_metrics.md`
+   必须存在于仓库根目录下的这个精确路径。数字必须来自真实评测运行，
+   不要手填虚高分。
 
-3. **Refuse > hallucinate.** If a finding can't be reproduced from the input
-   data, the report says so. Enforced by `tests/test_refusal.py` and
-   `docs/refusal-policy.md` (4 trap categories with canonical phrasings).
+3. **宁可拒答，不要幻觉。** 如果结论无法从上传数据复算，报告必须说明原因。
+   相关逻辑见 `docs/refusal-policy.md`，测试主要在
+   `src/backend/tests/test_analyze_api.py` 和
+   `src/backend/tests/test_followup_api.py`。
 
-4. **Submission contract is frozen.** `/v1/analyze` returns the JSON shape
-   defined in `docs/submission-contract.md` — every field, every key. Do
-   not drift.
+4. **提交契约冻结。** `/v1/analyze` 和 `/v1/follow-up` 的响应结构以
+   `docs/submission-contract.md` 为准，字段名和类型不要漂移。
 
-5. **Branch rule for organizer pull.** Their script clones `default > master
-   > main` in that order. Whatever branch we want graded must be the
-   default branch at submission time.
+5. **默认分支规则。** 组委会脚本按 `default > master > main` 顺序拉取。
+   准备送测的分支必须成为仓库默认分支。
 
-## Skills
+## 重要指针
 
-- **impeccable** for frontend craft (needs `PRODUCT.md` ≥200 chars).
-- **emil-style** for the default aesthetic (quiet, refined).
-- **mempalace** for cross-session memory; diary tag `tabletalker`.
-
-## Pointers
-
-`README.md` · `PRODUCT.md` · `docs/roadmap.md` · `docs/architecture.md` ·
-`docs/submission-contract.md` · `docs/scoring-map.md` ·
-`docs/refusal-policy.md` · `docs/session-state.md` · `.env.example`
+`README.md` · `PRODUCT.md` · `knowledge-base/product-capabilities.md` ·
+`docs/architecture.md` · `docs/submission-contract.md` ·
+`docs/scoring-map.md` · `docs/refusal-policy.md` ·
+`docs/session-state.md` · `架构文档/design_doc.md` ·
+`自测报告/latest_evaluation_metrics.md` · `.env.example`

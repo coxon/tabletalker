@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-
 from app.spreadsheet.context import SpreadsheetContext, SpreadsheetContextError
 from app.spreadsheet.ops.load import handle_load_csv, handle_load_excel
 from app.spreadsheet.schema import LoadCsvOp, LoadExcelOp
@@ -42,3 +41,9 @@ def test_load_excel_reads_first_sheet(workspace: Path) -> None:
 
     assert result.rows == 2
     assert result.cols == 2
+
+
+def test_legacy_xls_engine_is_installed() -> None:
+    """The upload path accepts .xls, so pandas must have the legacy engine."""
+
+    pytest.importorskip("xlrd")

@@ -1,128 +1,76 @@
-# Session state and follow-up
+# 会话状态与追问
 
-The auto-grader's follow-up tests use pronouns and references like
-"the high-value cohort we just identified", "those three categories",
-"compared to before". A planner that re-derives everything on each
-turn either disagrees with the previous turn's cohort definition or
-takes too long. This document defines what the system remembers
-between turns and how a follow-up prompt is assembled.
+一个 session 由一次父轮 `/v1/analyze` 和零到多次 `/v1/follow-up` 组成。
+追问通过 `parent_id` 关联父轮，并复用父轮 workspace、findings、cohorts、
+chart anchors、上传文件和采样信息。
 
-## 1. What is a "session"
+## 双层存储
 
-One session = one parent analysis (`/v1/analyze`) plus zero
-or more follow-ups (`/v1/follow-up`). Sessions are keyed by
-the parent's `id`. Follow-ups carry `parent_id`.
+TableTalker 使用两个互补存储层。
 
-Sessions are in-memory for the eval window — see
-[`architecture.md`](architecture.md) §7.
+| 层 | 代码 | 用途 | 生命周期 |
+|---|---|---|---|
+| 内存热层 | `app/session/store.py` | 追问实时执行；持有父轮 workspace 和上传文件 | TTL + LRU，默认 24h |
+| SQLite 历史索引 | `app/persistence/sessions.py`, `app/api/sessions.py` | 历史列表、搜索、统计、详情、删除 | 跨后端重启保留 |
 
-## 2. What the session store keeps
+SQLite recorder 是旁路能力。如果它写入失败，分析响应仍应返回给用户；历史记录可能少一行，
+但核心分析不能因为历史索引失败而失败。
 
-```python
-@dataclass
-class Session:
-    id: str                              # parent analysis id
-    workspace_dir: Path                  # where the upload(s) live
-    dataset_profile: DatasetProfile      # from PR #4 profiler
-    original_question: str
-    findings: list[Finding]              # all findings produced so far
-    cohorts: dict[str, CohortDef]        # name → filter spec
-    chart_ids: list[str]                 # already-rendered chart anchors
-    refused: bool                        # if the parent was refused
-    turns: list[Turn]                    # full Q-and-response history
-```
+## 内存 Session 内容
 
-### Cohort definition
+当前 `Session` dataclass 保存：
 
-```python
-@dataclass
-class CohortDef:
-    name: str                            # human-friendly: "高价值客群"
-    filters: str                         # the actual pandas filter
-    columns_used: list[str]
-    row_count: int                       # for pronoun-resolution sanity
-    introduced_in_turn: int
-```
+- 父轮 id；
+- workspace 目录；
+- 主文件名和辅助 `extra_filenames`；
+- dataset label；
+- 原始问题；
+- 累积 findings；
+- 父轮 summary；
+- 抽取出的 cohorts；
+- chart anchors；
+- 是否拒答；
+- sampling rate / sampling note；
+- turn 列表；
+- 创建和最后使用时间；
+- 每个 session 独立的追问锁。
 
-Cohorts are extracted automatically from the parent's findings — any
-finding whose evidence has a `filters` field that produced more than
-one row becomes a candidate cohort. Names are LLM-generated during the
-parent run and stored.
+追问锁保证同一父轮的并发追问不会分配到同一个 `eval_follow_<suffix>_qN` id。
 
-## 3. Follow-up prompt assembly
+## 追问 Prompt 组装
 
-When a follow-up arrives, the planner's system prompt is rebuilt from
-the parent session as:
+`app/session/prompt.py` 会给 planner 渲染 system prelude，包含：
 
-```text
-You are a data analysis agent. The user has already had this analysis:
+- 父轮问题；
+- 已建立的 findings；
+- 从 evidence filters 抽取的命名 cohorts；
+- 已渲染图表 anchors；
+- 新追问问题。
 
-Parent question: {original_question}
+planner 可以复用之前的过滤条件，也可以在此基础上新增分组或聚合，不必从零重建上下文。
 
-Findings established (with evidence available, do not re-derive):
-1. {finding 1 title} — {finding 1 detail}
-2. {finding 2 title} — ...
+## 多文件追问
 
-Named cohorts in this session (you can refer to them by name):
-- 高价值客群 := {filters: "Age >= 55", n=847}
-- 流失高发部门 := ...
+父轮会把辅助文件名保存到 session。`/v1/follow-up` 会把这些文件名传回
+`AnalyzeRequest.extra_filenames`，因此 TMDB movies + credits 的父轮不会在追问时退化成单文件。
 
-Charts already rendered (do not duplicate; reference by html_anchor):
-- #chart-age-bar (柱状图: 各年龄段平均客单价)
-- ...
+## 拒答父轮
 
-Now answer this follow-up:
-{follow_up_question}
-```
+如果父轮已拒答，追问返回拒答继承报告，沿用父轮拒答理由。没有新增数据时，
+同一会话内不应把不可回答问题变成可回答。
 
-Pronoun resolution then becomes the LLM's job — but with the named
-cohorts in scope, "they" / "those" / "the cohort" resolve cleanly
-without the planner having to reason from scratch.
+## 持久历史 API
 
-## 4. When does the follow-up reuse vs re-analyze?
+`/v1/sessions` 返回列表和统计；`/v1/sessions/{id}` 返回 turn 详情；
+`DELETE /v1/sessions/{id}` 删除持久历史记录，但不会打断正在进行的内存热会话。
 
-The planner is instructed to:
+前端历史页读取 SQLite 索引，而不是扫描内存 store。
 
-- **Reuse** a finding's filter / aggregation when the follow-up asks
-  for a slice of an already-named cohort.
-- **Run new code** when the follow-up adds a new dimension (e.g. parent
-  found "55+ has higher spend"; follow-up asks "across what
-  categories?" — needs new groupby).
-- **Run new code with the cohort filter** is the most common path.
+## 当前实测
 
-The session store does not pre-compute these; it just provides the
-context. The planner decides based on the system-prompt rules above.
+最新 20 题回归：
 
-## 5. What follow-ups CANNOT do
+- 追问成功率：94.4%
+- 会话继承率：94.4%
 
-- Switch datasets. A follow-up against a different dataset is a new
-  parent analysis; the planner refuses follow-ups whose `dataset` (if
-  supplied) doesn't match the parent's.
-- Resurrect refused parents. If the parent was refused, the follow-up
-  is also refused with the canonical phrasing — there's no path from
-  "we couldn't analyze this" to "let me try again with more
-  information" within the same session.
-
-## 6. Eviction / cleanup
-
-The eval harness is the only client; it makes ≤ ~100 sessions per
-window. Memory budget is generous, so we evict only:
-
-- on backend restart (full clear);
-- after 24 h of idle time (TTL);
-- when total in-memory cohort count exceeds 10 k (LRU on parent id).
-
-The eviction policy is implemented in PR #6.
-
-## 7. Trace recording
-
-Every turn writes a JSONL line to
-`workspace/{parent_id}/trace.jsonl`:
-
-```json
-{"turn": 0, "kind": "parent", "question": "...", "tools": [...], "findings": [...]}
-{"turn": 1, "kind": "follow-up", "question": "...", "reused_cohorts": ["高价值客群"], "new_findings": [...]}
-```
-
-This is the audit log used to populate the "可观测性" subsection in
-`architecture.md` §3 and the demo-video script in PR #9.
+剩余失败属于传输 / 超时类问题，不是会话状态丢失。

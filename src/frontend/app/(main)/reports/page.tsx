@@ -5,6 +5,7 @@ import {
   Search,
   FileText,
   ExternalLink,
+  Download,
   Loader2,
   Eye,
   X,
@@ -285,6 +286,13 @@ export default function V2ReportsPage() {
                         <ExternalLink size={12} />
                         新窗口
                       </a>
+                      <a
+                        href={`/api/reports/${report.responseId}/download`}
+                        className="flex items-center gap-1 text-xs font-medium text-emerald-700 hover:text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-md transition-colors"
+                      >
+                        <Download size={12} />
+                        下载
+                      </a>
                     </div>
                   </td>
                 </tr>
@@ -328,6 +336,13 @@ export default function V2ReportsPage() {
                   >
                     <ExternalLink size={12} />
                     新窗口打开
+                  </a>
+                  <a
+                    href={`/api/reports/${previewId}/download`}
+                    className="flex items-center gap-1 text-xs font-medium text-emerald-700 hover:text-emerald-800 bg-white border border-emerald-200 px-3 py-1.5 rounded-md transition-colors"
+                  >
+                    <Download size={12} />
+                    下载 HTML
                   </a>
                   <button
                     type="button"

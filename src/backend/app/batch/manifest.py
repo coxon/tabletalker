@@ -27,14 +27,50 @@ from dataclasses import dataclass
 # Keep the optional fields aligned with `app.api.analyze`'s Form params
 # so a manifest row reads like a function call to /v1/analyze. Renames
 # here force a manifest re-export, so we deliberately mirror the route.
-_REQUIRED = {"question", "file"}
-_KNOWN_KEYS = _REQUIRED | {
+#
+# Two manifest dialects are supported, auto-detected per row:
+#   1. **Native** — the original tabletalker shape with `question` + `file`
+#      + optional `extra_files` / `dataset` / `sampling_*`.
+#   2. **Organizer-official** (赛题4 §4) — `user_query` instead of
+#      `question`, `type` ∈ {standard_analysis, follow_up, unanswerable},
+#      `parent_id` for follow-ups, optional `dataset` / `files`. Reference
+#      fields (`reference_findings`, `reference_charts`, `scoring_hints`,
+#      `expected_behavior`, `acceptable_response_keywords`,
+#      `forbidden_keywords`) are accepted but ignored — they're hints to
+#      the evaluator, not inputs to the agent.
+# The parser normalises both into the same `BatchTask`; the batch route
+# uses the presence of `user_query` / `type` to decide whether to render
+# the §5.2-style `predictions.jsonl + reports/` output bundle vs xlsx.
+_REQUIRED_NATIVE = {"question", "file"}
+_REQUIRED_OFFICIAL = {"user_query"}
+_NATIVE_KEYS = _REQUIRED_NATIVE | {
     "id",          # caller-supplied task id; defaults to row index
     "extra_files", # auxiliary file names (list[str] in JSONL, ; or , in CSV)
     "dataset",
     "sampling_rate",
     "sampling_note",
 }
+_OFFICIAL_KEYS = _REQUIRED_OFFICIAL | {
+    "id",
+    "type",                          # standard_analysis | follow_up | unanswerable
+    "parent_id",                     # only meaningful when type == follow_up
+    "dataset",                       # organizer dataset label, also used as filename hint
+    "file",                          # tabletalker extension: explicit primary file basename
+    "files",                         # alternative: list whose first element is primary
+    "extra_files",
+    "sampling_rate",
+    "sampling_note",
+    # Reference / scoring hint fields — accepted, never consumed.
+    "reference_findings",
+    "reference_charts",
+    "scoring_hints",
+    "expected_behavior",
+    "acceptable_response_keywords",
+    "forbidden_keywords",
+}
+
+
+_OFFICIAL_TYPES = {"standard_analysis", "follow_up", "unanswerable"}
 
 
 class ManifestError(ValueError):
@@ -49,6 +85,11 @@ class BatchTask:
     one, the parser fills in a 1-based row index so duplicates can't
     collide. `file` + `extra_files` are basenames; the runner trusts
     that the workspace already contains them (the route saved them).
+
+    `task_type` and `parent_id` carry the official-§4 dialect through to
+    the runner so it can fan a follow-up out via `/v1/follow-up` rather
+    than as an independent analysis. Native-dialect tasks default to
+    `task_type="standard_analysis"` and `parent_id=None`.
     """
 
     id: str
@@ -58,6 +99,8 @@ class BatchTask:
     dataset: str | None = None
     sampling_rate: float | None = None
     sampling_note: str | None = None
+    task_type: str = "standard_analysis"
+    parent_id: str | None = None
 
 
 def parse_manifest(content: bytes, filename: str) -> list[BatchTask]:
@@ -166,7 +209,7 @@ def _parse_csv(text: str) -> list[BatchTask]:
     reader = csv.DictReader(io.StringIO(text))
     if reader.fieldnames is None:
         raise ManifestError("CSV manifest is empty (no header row)")
-    missing = [k for k in _REQUIRED if k not in reader.fieldnames]
+    missing = [k for k in _REQUIRED_NATIVE if k not in reader.fieldnames]
     if missing:
         raise ManifestError(
             f"CSV header missing required columns: {missing} "
@@ -246,12 +289,47 @@ def _to_task(obj: dict, *, row_label: str, index: int) -> BatchTask:
 
     Strict-but-tolerant: required fields raise, unknown fields warn (we
     just ignore them) so a manifest written for a future schema doesn't
-    fail wholesale on minor field-name drift.
+    fail wholesale on minor field-name drift. Both native (`question`/
+    `file`) and organizer-official (`user_query`/`type`) dialects are
+    accepted in the same row.
     """
 
-    missing = [k for k in _REQUIRED if not obj.get(k)]
+    # ---- Detect dialect ----
+    is_official = "user_query" in obj or "type" in obj or "parent_id" in obj
+    if is_official and "question" not in obj:
+        # Pull `user_query` into `question` for unified downstream handling.
+        obj = {**obj, "question": obj.get("user_query", "")}
+
+    # ---- Resolve primary `file` ----
+    # Native dialect requires `file` outright. Official dialect may
+    # supply `file` (preferred when present), `files` (a list whose
+    # first element is the primary), or — as a last resort — derive
+    # the filename from `dataset`. Resolution order is least-magic
+    # first so a manifest that explicitly names files isn't second-
+    # guessed.
+    if "file" not in obj or not obj.get("file"):
+        files_field = obj.get("files")
+        if isinstance(files_field, list) and files_field:
+            primary = str(files_field[0]).strip()
+            extras_from_files = files_field[1:]
+            obj = {
+                **obj,
+                "file": primary,
+                "extra_files": list(obj.get("extra_files") or []) + list(extras_from_files),
+            }
+        elif is_official and obj.get("dataset"):
+            # Convention fallback: dataset label IS the basename. The CLI
+            # tool documents this requirement; the route layer should
+            # already have aliased uploaded files into matching basenames.
+            obj = {**obj, "file": str(obj["dataset"]).strip()}
+
+    missing = [k for k in _REQUIRED_NATIVE if not obj.get(k)]
     if missing:
-        raise ManifestError(f"{row_label}: missing required fields {missing}")
+        raise ManifestError(
+            f"{row_label}: missing required fields {missing} "
+            f"(accept either native `question`/`file` or official "
+            f"`user_query` + `file`/`files`/`dataset`)"
+        )
 
     question = str(obj["question"]).strip()
     file = str(obj["file"]).strip()
@@ -299,6 +377,34 @@ def _to_task(obj: dict, *, row_label: str, index: int) -> BatchTask:
     )
     task_id = task_id_stripped if task_id_stripped else f"task_{index}"
 
+    # ---- Official-only fields ----
+    type_raw = obj.get("type")
+    if type_raw is None:
+        task_type = "standard_analysis"
+    else:
+        task_type = str(type_raw).strip().lower()
+        if task_type not in _OFFICIAL_TYPES:
+            raise ManifestError(
+                f"{row_label}: type {type_raw!r} not in {sorted(_OFFICIAL_TYPES)}"
+            )
+
+    parent_id_raw = obj.get("parent_id")
+    parent_id = (
+        str(parent_id_raw).strip() if parent_id_raw not in (None, "") else None
+    )
+    if task_type == "follow_up" and not parent_id:
+        raise ManifestError(
+            f"{row_label}: type=follow_up requires non-empty `parent_id`"
+        )
+    if task_type != "follow_up" and parent_id is not None:
+        # Defensive: a `parent_id` on a non-follow-up task means the
+        # manifest author confused the dialect. Better to reject here
+        # than silently ignore the field and produce a wrong response.
+        raise ManifestError(
+            f"{row_label}: parent_id is only valid for type=follow_up "
+            f"(got type={task_type!r})"
+        )
+
     return BatchTask(
         id=task_id,
         question=question,
@@ -307,6 +413,8 @@ def _to_task(obj: dict, *, row_label: str, index: int) -> BatchTask:
         dataset=dataset,
         sampling_rate=sampling_rate,
         sampling_note=sampling_note,
+        task_type=task_type,
+        parent_id=parent_id,
     )
 
 

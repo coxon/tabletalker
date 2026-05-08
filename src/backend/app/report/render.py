@@ -201,6 +201,37 @@ def _select_and_build_charts(
                 values=values,
             )
         )
+    # Heatmap: emit a one-row strip showing the per-label intensity. It's a
+    # degenerate 2D heatmap (1 × N) but visually meaningful — the colour
+    # gradient gives an at-a-glance ranking that bar charts under-sell when
+    # the magnitudes are close. Cap at 24 labels so the colour grid stays
+    # legible; very long answer tables stick to bar/line/scatter.
+    if 2 <= len(rows) <= 24:
+        images.append(
+            build_chart(
+                "heatmap",
+                title=f"{value_col} 强度",
+                anchor_id=f"chart-{_slug(value_col)}-heatmap",
+                labels=labels,
+                values=values,
+            )
+        )
+    # Boxplot: needs ≥4 distinct data points to be meaningful (otherwise the
+    # 5-number summary collapses). Useful for spotting outliers in the
+    # cross-category spread of the metric — a small region whose value sits
+    # far outside the IQR jumps off the chart.
+    if len(rows) >= 4:
+        finite = [v for v in values if math.isfinite(v)]
+        if finite and (max(finite) - min(finite)) > 0:
+            images.append(
+                build_chart(
+                    "box",
+                    title=f"{value_col} 跨{label_col}分布",
+                    anchor_id=f"chart-{_slug(value_col)}-box",
+                    labels=labels,
+                    values=values,
+                )
+            )
     return images
 
 

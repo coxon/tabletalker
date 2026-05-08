@@ -8,6 +8,7 @@ import {
   Filter,
   ChevronDown,
   ExternalLink,
+  Download,
   Trash2,
   FileSpreadsheet,
   BarChart3,
@@ -410,6 +411,13 @@ function V2SessionDetailPanel({
             >
               <ExternalLink size={12} />
               查看报告
+            </a>
+            <a
+              href={`/api/reports/${turn.response_id}/download`}
+              className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:text-emerald-800 transition-colors"
+            >
+              <Download size={12} />
+              下载 HTML
             </a>
             <span className="text-xs text-slate-400">
               {turn.finding_count} 发现 · {turn.chart_count} 图表

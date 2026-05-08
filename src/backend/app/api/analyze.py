@@ -11,9 +11,9 @@ frozen — see `docs/submission-contract.md`. The heavy lifting lives in
     can pick the workspace up by `parent_id`.
 
 Workspace lifetime: the parent's temp dir survives until the session
-expires (TTL or LRU eviction). That trade — keeping ≤20 MiB per session
-in the OS temp dir for ~24 h — is what lets `/v1/follow-up` re-read the
-file without round-tripping through the network. Cleanup happens in
+expires (TTL or LRU eviction). The upload byte caps in `app.limits` keep
+that disk footprint bounded while letting `/v1/follow-up` re-read the file
+without round-tripping through the network. Cleanup happens in
 `app.session.store` when an entry is evicted.
 
 The internal `/spreadsheet/analyze` route (PR #3.5) is unaffected — it
@@ -207,7 +207,17 @@ async def analyze(
                 )
             response.headers["X-Stage-Timings"] = serialize_header(timer)
         except AnalyzeFailure as exc:
-            raise HTTPException(exc.status_code, str(exc)) from exc
+            # Forward stage timings on the error path too — the eval renderer
+            # needs to know which stage died on a 422/502, otherwise root-cause
+            # analysis on a failed case requires re-running with a backend log
+            # capture (which start.sh did not always do). FastAPI does not
+            # propagate `response.headers` to the HTTPException response, so
+            # set them on the exception itself.
+            raise HTTPException(
+                exc.status_code,
+                str(exc),
+                headers={"X-Stage-Timings": serialize_header(timer)},
+            ) from exc
 
         # Register the session so /v1/follow-up can pick it up. We do
         # this *before* the early-return so even refused parents are

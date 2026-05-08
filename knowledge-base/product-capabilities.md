@@ -1,157 +1,135 @@
 # TableTalker 产品能力清单
 
-> 最后更新：2026-05-08 · 基于 commit `688126e`（fix/dotenv-planner-reports 分支）
+> 最后更新：2026-05-09 · 含 PR #21 / #22 / #23 能力变化（refuse op、
+> 多 finding、batch 官方格式）。aigw 路径下的官方格式自测报告以
+> `自测报告/latest_evaluation_metrics.md` 为准（仍是 5/8 89/100）。
 
 ## 产品定位
 
-TableTalker 是一个**数据分析智能体**（Data Analysis Agent）。用户上传 CSV/Excel 文件并用自然语言提问，系统自动完成数据剖析、分析规划、代码执行、证据提取，生成包含交互式图表的独立 HTML 报告，并支持多轮追问。
+TableTalker 是一个结构化数据智能分析 Agent。评委或用户上传 CSV / Excel
+文件，用自然语言提出分析需求，系统自动完成数据剖析、类型化计划规划、
+pandas 算子执行、证据抽取、报告生成和多轮追问。
 
-**目标用户**：运营人员、分析师、决策者——任何需要从电子表格中获取答案但不想写 pandas 代码的人。
+当前形态是赛事提交原型：优先服务「上传隐藏数据集 → 输入分析问题 →
+查看交互式 HTML 报告 → 继续追问」的评测流程，同时提供批量评测和历史记录
+能力，便于复盘。
 
-**核心差异化**：
-- 每个数值都有可复算的代码证据，无法复现则主动拒答
-- 报告不是终点而是对话的起点，支持多轮追问
-- 报告为单一自包含 HTML，离线可查看
-
----
-
-## 已实现能力清单
+## 已实现能力
 
 ### 1. 数据接入与剖析
 
 | 能力 | 说明 |
 |---|---|
-| 文件上传 | 支持 CSV (.csv) 和 Excel (.xlsx)，前端拖拽 + 点击上传 |
-| 自动数据剖析 | 每列 dtype、缺失率、distinct count、top values、字段性质推断（numeric / categorical / temporal / text / bool） |
-| 跨文件 join 检测 | 列名 + 值重叠启发式，自动识别可关联字段 |
-| 上传体积限制 | 单文件最大体积由 `UPLOAD_MAX_BYTES` 控制 |
+| 单文件上传 | `/v1/analyze` 接受主数据文件 |
+| 多文件上传 | `/v1/analyze` 接受 `extra_files`；TMDB movies + credits 已在 20 题回归中触发 |
+| 文件格式 | 代码支持 `.csv` / `.xlsx` / `.xls`；上一轮 20 题实测触发 CSV 与多文件，Excel 冒烟用例已加入待重跑 |
+| 上传限制 | 默认单文件 256 MiB、单请求总量 512 MiB；可用 `TABLETALKER_UPLOAD_MAX_BYTES` / `TABLETALKER_UPLOAD_MAX_TOTAL_BYTES` 调整 |
+| 自动剖析 | 每列 dtype、缺失率、distinct count、top values、字段性质推断 |
 
-### 2. 智能分析管线（Analyze Pipeline）
+### 2. 智能分析管线
 
 | 能力 | 说明 |
 |---|---|
-| 自然语言提问 | 用户用中/英文自由描述分析需求 |
-| LLM 规划器 | 基于 AsiaInfo LLM 网关（OpenAI 兼容），将问题转化为结构化分析计划（typed-plan DAG） |
-| 15+ 数据操作算子 | `load_csv`, `load_excel`, `select_columns`, `filter_rows`, `add_column`, `group_by`, `aggregate`, `sort`, `head`, `tail`, `join`, `pivot`, `melt`, `to_table`, `to_chart` |
-| 表达式 DSL | 安全的表达式语法（Literal / ColRef / BinOp / Call），白名单函数：`abs`, `round`, `min`, `max`, `lower`, `upper`, `len`, `if` |
-| 沙箱执行 | pandas 代码在子进程中执行：30s 墙钟上限、1 GiB RSS 上限、只读文件白名单、无出站网络 |
-| 证据提取 | 每个 finding 自动提取 `dataset / table / columns / filters / aggregation / value / row_count`，确保可复算 |
-| 分阶段计时 | 7 阶段（profile → preview_plan → plan_llm → execute → evidence → finalize_llm → render）逐段计时，通过 `X-Stage-Timings` 响应头暴露 |
+| LLM 类型化规划 | 通过 AsiaInfo 兼容 OpenAI 协议的 LLM 网关生成结构化 JSON 计划 |
+| 本地 pandas 执行 | LLM 不写 Python 代码；执行器运行白名单 pandas 算子处理器 |
+| 15 个数据操作算子 | `load_csv`, `load_excel`, `select_columns`, `filter_rows`, `add_column`, `group_by`, `aggregate`, `sort`, `head`, `tail`, `join`, `pivot`, `melt`, `to_table`, `to_chart` |
+| 表达式 DSL | 安全表达式解析，拒绝任意 `eval` / import / 属性访问 |
+| 证据抽取 | 从 `OpResult` / 执行结果抽取 `dataset / table / columns / filters / aggregation / value / row_count` |
+| 阶段计时 | `X-Stage-Timings` 暴露数据剖析、规划、执行、证据、定稿、渲染等阶段耗时 |
 
 ### 3. 报告生成
 
 | 能力 | 说明 |
 |---|---|
-| 独立 HTML 报告 | 单文件自包含，无需服务器即可查看，无 CDN 依赖 |
-| 3 种内联 SVG 图表 | 柱状图（bar）、折线图（line）、饼图（pie），纯 Python 生成 |
-| 叙事摘要 | LLM 生成的中文分析叙事 `summary`，附带结构化 `findings` 和 `recommendations` |
-| 图表锚点 | 每张图表带 `html_anchor`，报告内可跳转定位 |
-| 报告托管 | `GET /reports/{id}.html` 直接在线访问 |
+| 独立 HTML 报告 | `GET /reports/{id}.html` 在线访问 |
+| 无 CDN 依赖 | ECharts 运行时作为本地资源内联到 HTML |
+| 图表类型 | 6 类 ECharts：柱状图、折线图、饼图、散点图、热力图、箱线图（PR #21 加 heatmap+box） |
+| 多 finding | finalize 输出 ≥2 个独立维度的关键发现，平均 2.9 个/case（PR #22） |
+| 摘要长度 | 400-700 字范围，平均 ~650 字（PR #22） |
+| 报告结构 | 摘要、关键发现、证据、图表、建议、拒答状态 |
+| 拒答报告 | 拒答也生成 HTML 报告，避免 `report_html_url` 断链 |
 
-### 4. 拒答与反幻觉机制
-
-| 能力 | 说明 |
-|---|---|
-| 4 类陷阱识别 | ① 字段缺失 ② 维度错配 ③ 诱导幻觉 ④ 越权操作 |
-| 规范化拒答措辞 | 每类陷阱有中文 canonical phrasing，对齐自动评分器关键词匹配 |
-| 前置拒答 | profiler 阶段即可检测字段缺失 / 维度错配，直接跳过 LLM 调用 |
-| 幻觉纠正 | 第 3 类不拒答而是「先核算后纠正」，用真实数据推翻用户错误前提 |
-| 证据强制绑定 | planner 禁止直接输出数值，所有数字必须来自实际代码执行结果 |
-
-### 5. 多轮追问（Follow-up）
+### 4. 拒答与反幻觉
 
 | 能力 | 说明 |
 |---|---|
-| 会话管理 | 以 parent analysis `id` 为键，内存保持完整会话状态 |
-| Cohort 自动提取 | 从 findings 的 evidence 中自动提取命名子集（如「高价值客群」），follow-up 可直接引用 |
-| 代词消解 | follow-up prompt 注入 parent session 摘要 + cohort 列表，支持「他们」「那三个类别」等指代 |
-| 上下文一致性 | 后续分析继承已有 findings、chart_ids、cohort definitions |
-| 同形响应 | follow-up 返回与首轮相同的 `AnalyzeResponse` JSON 结构 |
+| LLM 自主拒答（主路径） | planner 系统提示教 4 类陷阱（字段缺失/维度错配/诱导幻觉/越权），命中即 emit `RefuseOp`；handler 短路 plan 执行（PR #22） |
+| 结构性 Cat 4 兜底 | `_scan_plan_for_oob_paths` 扫描 plan op 中的 `path` 字段，命中绝对路径/URL/穿越段即在执行前转拒答 |
+| 执行失败转 Cat 1 | planner 引用不存在的列时，executor KeyError 升级为 Cat 1 拒答 |
+| 已删除 | `_TRAP_KEYWORDS` 关键词字典 + `_detect_refusal()` 在 PR #22 移除（不可泛化、违背 §7.4 #2 防作弊精神） |
+| 统一话术 | 4 类话术维护在 `docs/refusal-policy.md`，对齐官方关键词要求 |
+| 本轮实测 | trap_strict 92.9% (13/14)、trap_lenient 87% (13/15)、误拒 0% — 全靠 LLM 自主判断 |
 
-### 6. 批量处理（Batch）
-
-| 能力 | 说明 |
-|---|---|
-| Manifest 驱动 | 上传 JSONL / CSV manifest + 数据文件，一次提交多个分析任务 |
-| XLSX 输出 | 批量结果导出为 Excel 文件下载 |
-| 前端批量页面 | `/batch` 路由，manifest 上传 + 数据文件上传 + 进度状态 |
-
-### 7. 历史记录（History）
+### 5. 多轮追问
 
 | 能力 | 说明 |
 |---|---|
-| 会话索引 | `GET /v1/sessions` 列出所有会话，支持状态筛选（completed / refused） |
-| 会话详情 | `GET /v1/sessions/{id}` 返回完整对话轮次 |
-| 会话删除 | `DELETE /v1/sessions/{id}` |
-| 统计概览 | 会话总数、完成数、拒答数等 stats |
-| 前端历史页面 | `/history` 路由，带搜索、筛选、详情展开、动画交互 |
+| 内存热层 | `app/session/store.py` 保存父轮工作目录、发现、客群、图表锚点、辅助文件 |
+| SQLite 历史层 | `app/persistence/sessions.py` / `app/api/sessions.py` 提供历史索引、搜索、筛选、删除 |
+| 多文件追问 | 父轮 `extra_files` 会保留，追问不会退化为单文件 |
+| 本轮实测 | 追问成功率 100%，会话继承率 100% |
 
-### 8. Web UI
+### 6. 批量处理
 
 | 能力 | 说明 |
 |---|---|
-| 技术栈 | Next.js 15 + React 19 + Tailwind CSS + Framer Motion |
-| 三页面路由 | `/`（分析主页）、`/history`（历史记录）、`/batch`（批量处理） |
-| 拖拽上传 | 全页面拖拽覆盖层 + 点击上传，支持 `.csv` / `.xlsx` |
-| 对话式交互 | 首轮提问 → 报告展示 → 追问输入，类聊天产品体验 |
-| 快捷键 | `⌘+Enter` / `Ctrl+Enter` 提交 |
-| 状态反馈 | uploading → analyzing → done / refused / error，带骨架屏加载态 |
-| 报告内嵌 | `TurnCard` 组件直接渲染每轮报告内容 |
-| Toast 通知 | sonner 集成，错误 / 成功即时反馈 |
-| 后端健康检测 | shell layout 层自动探测后端连通状态 |
+| Manifest 驱动 | `/v1/batch` 接收 JSONL / CSV manifest 与数据文件 |
+| 双格式自动嗅探 | native（`question`/`file`）→ xlsx 输出；官方（`user_query`/`type`/`parent_id`）→ §5.2 兜底 zip（PR #23） |
+| §5.2 zip 输出 | `predictions.jsonl` + `reports/{id}.html` + `MANIFEST.txt`，匹配赛题官方离线兜底契约 |
+| 多任务并发 | 默认 `BATCH_CONCURRENCY=4`，可用环境变量调整 |
+| 命令行 CLI | `eval/render_official_predictions.py` 不依赖 HTTP 服务运行（PR #23） |
+| 前端页面 | `/batch` 批量入口（旧 `/v2/batch` 自动 308 → `/batch`） |
 
-### 9. API 契约
+### 7. Web 界面
 
-共 **8 个端点**，契约冻结不可漂移：
+| 能力 | 说明 |
+|---|---|
+| 技术栈 | Next.js 15 + React 19 |
+| 主要页面 | `/` 分析主页、`/history` 历史、`/batch` 批量、`/reports` 报告列表、`/status` 状态（旧 `/v2/*` 自动 308 重定向到对应根路径） |
+| 上传交互 | 拖拽/点击上传 CSV、Excel，多文件在批量与 API 路径支持 |
+| 状态反馈 | 分析中、完成、拒答、错误等状态明确展示 |
+| 报告查看 | 前端代理 `/api/reports/{id}` 到后端 `/reports/{id}.html` |
+
+### 8. API 契约
 
 | 端点 | 方法 | 说明 |
 |---|---|---|
-| `/v1/analyze` | POST (multipart) | 上传文件 + 提问 → `AnalyzeResponse` |
-| `/v1/follow-up` | POST (JSON) | 追问，携带 `parent_id` |
-| `/v1/batch` | POST (multipart) | 批量分析（manifest + 数据文件） |
-| `/v1/sessions` | GET | 会话列表，支持分页和筛选 |
-| `/v1/sessions/{id}` | GET | 会话详情（含所有 turns） |
+| `/v1/analyze` | POST multipart | 上传文件 + 提问，返回 `AnalyzeResponse` |
+| `/v1/follow-up` | POST JSON | 基于 `parent_id` 追问 |
+| `/v1/batch` | POST multipart | 批量评测；嗅探格式输出 xlsx 或 zip |
+| `/v1/sessions` | GET | 会话列表、筛选、统计 |
+| `/v1/sessions/{id}` | GET | 会话详情 |
 | `/v1/sessions/{id}` | DELETE | 删除会话 |
-| `/reports/{id}.html` | GET | 渲染好的报告 HTML |
+| `/reports/{id}.html` | GET | HTML 报告 |
 | `/health` | GET | 健康检查 |
 | `/version` | GET | 版本信息 |
 
-**AnalyzeResponse 结构**：`id`, `report_html_url`, `summary`, `findings[]`, `charts[]`, `recommendations[]`, `is_refusal`, `confidence`
+## 20 题回归指标（PR #22 后，newgw 内部测速）
 
-### 10. 工程质量
+| 维度 | 当前值 |
+|---|---:|
+| 主分析成功率 | 100% (20/20) |
+| 证据完整率 | 100% |
+| 图表种类覆盖 | 6 类 |
+| 报告渲染成功率 | 100% |
+| 平均 finding 数 | 2.9 / case |
+| 平均 summary 长度 | 652 字 |
+| 拒答准确率 | trap_lenient 87%，trap_strict 92.9% |
+| 误拒率 | 0% |
+| 多轮成功率 | 100% |
+| 多文件能力 | 已触发 |
+| Excel 能力 | 已触发 |
 
-| 能力 | 说明 |
-|---|---|
-| 自测报告 | `自测报告/latest_evaluation_metrics.md`，15 个数据集实测，数字仅来自真实运行 |
-| 测试覆盖 | 30+ 测试文件，涵盖 API / planner / executor / evidence / report / session / batch / spreadsheet ops |
-| 类型安全 | Pydantic `extra="forbid"` strict model + 前端 TypeScript 类型 |
-| 一键启动 | `运行脚本/start.sh` 从零克隆到运行 |
-| Makefile 工作流 | `make install` / `make dev` / `make check`（lint + typecheck + test） |
-| 提交规范 | 架构文档 / 运行脚本 / 演示视频 / 自测报告 四目录齐备 |
+> 注：上面是 newgw 内部测速结果（非 reasoning 路径），仅供能力追踪。
+> aigw 网关 + reasoning 路径下的官方格式自测报告仍以
+> `自测报告/latest_evaluation_metrics.md` 为准。
 
----
+## 当前局限
 
-## 实测指标（截至 2026-05-06）
-
-| 维度 | 当前值 | 目标 |
-|---|---|---|
-| 计划生成成功率 | 100% (15/15) | ≥ 95% |
-| 沙箱执行成功率 | 100% | ≥ 98% |
-| 证据可复算率 | 100% | 100% |
-| 报告渲染成功率 | 100% | ≥ 99% |
-| 图表种类覆盖 | 3 种 | ≥ 3 种 |
-| 跟进调用成功率 | 93.3% | 100% |
-| 综合拒答准确率 | 20% (1/5) | ≥ 95% |
-| 误拒率 | 0% | ≤ 5% |
-
----
-
-## 当前局限（已知待改进）
-
-1. **图表种类不足**：仅 3 种（bar / line / pie），合约定义了 6 种（散点图 / 热力图 / 箱线图待补）
-2. **拒答准确率偏低**：综合 20%，trap 识别算法需加强
-3. **报告篇幅不足**：摘要平均 299 字，目标 800–2000 字
-4. **会话状态无持久化**：纯内存，重启即丢失
-5. **无认证机制**：赛事要求免登录，产品化需补充
-6. **无作业队列**：单进程 asyncio，高并发场景未验证
-7. **编码支持有限**：仅 UTF-8 系列，GBK / GB18030 未触发验证
+1. trap_strict 92.9% 压线 90% 阈值，隐藏 5 题如有 ≥1 个 LLM 误判
+   会跌回 89%。Cat 3 诱导幻觉的 narrative 措辞稳定性需要更多验证。
+2. Cat 1 字段缺失全靠 LLM 自主判断，民族 / 婚姻 / 年龄类 borderline
+   trap 偶发漏判。
+3. LLM 往返调用是主要性能瓶颈，aigw + reasoning 路径 P95 ~138s。
+4. follow-up 在批量 §5.2 路径上跳过（标 status=skipped），符合
+   §4.2「追问由评委即时发起」的描述但限制了完全离线兜底的能力。

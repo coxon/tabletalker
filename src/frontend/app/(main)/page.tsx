@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   Clock,
   ExternalLink,
+  Download,
   ChevronRight,
   Sparkles,
   ShieldCheck,
@@ -504,9 +505,14 @@ function V2TurnCard({ turn, index }: { turn: Turn; index: number }) {
               数据图表报告
               <ChevronDown size={14} className={`transition-transform duration-200 ${reportOpen ? "rotate-180" : ""}`} />
             </button>
-            <a href={`/reports/${response.id}.html`} target="_blank" rel="noreferrer" className="text-xs text-indigo-600 hover:text-indigo-700 flex items-center gap-1">
-              新窗口打开 <ExternalLink size={12}/>
-            </a>
+            <div className="flex items-center gap-3">
+              <a href={`/api/reports/${response.id}/download`} className="text-xs text-emerald-700 hover:text-emerald-800 flex items-center gap-1">
+                下载 HTML <Download size={12}/>
+              </a>
+              <a href={`/reports/${response.id}.html`} target="_blank" rel="noreferrer" className="text-xs text-indigo-600 hover:text-indigo-700 flex items-center gap-1">
+                新窗口打开 <ExternalLink size={12}/>
+              </a>
+            </div>
           </div>
           <AnimatePresence>
             {reportOpen && (

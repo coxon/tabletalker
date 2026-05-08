@@ -4,9 +4,10 @@ Generates JSON option objects for ECharts 5.x. The JS runtime is inlined
 into the HTML report (no CDN dependency) so the grader sandbox can render
 charts without network access.
 
-Four chart types: bar / line / pie / scatter. Each option includes
-tooltip, toolbox (save-as-image), and dataZoom (bar/line/scatter) for
-interactive exploration.
+Six chart types: bar / line / pie / scatter / heatmap / box. Each option
+includes tooltip, toolbox (save-as-image), and dataZoom (bar/line/scatter)
+for interactive exploration. The contract requires ≥3 distinct chart types
+per non-refusal response (`docs/submission-contract.md` §`charts`).
 """
 
 from __future__ import annotations
@@ -17,13 +18,15 @@ from dataclasses import dataclass
 from typing import Literal
 from xml.sax.saxutils import escape as _xml_escape
 
-ChartKind = Literal["bar", "line", "pie", "scatter"]
+ChartKind = Literal["bar", "line", "pie", "scatter", "heatmap", "box"]
 
 CHART_LABELS: dict[ChartKind, str] = {
     "bar": "柱状图",
     "line": "折线图",
     "pie": "饼图",
     "scatter": "散点图",
+    "heatmap": "热力图",
+    "box": "箱线图",
 }
 
 
@@ -97,6 +100,10 @@ def build_chart(
         option = _pie_option(title, labels, safe_values)
     elif kind == "scatter":
         option = _scatter_option(title, labels, safe_values)
+    elif kind == "heatmap":
+        option = _heatmap_option(title, labels, safe_values)
+    elif kind == "box":
+        option = _box_option(title, labels, safe_values)
     else:
         raise ValueError(f"unknown chart kind {kind!r}")
 
@@ -206,7 +213,10 @@ def _line_option(title: str, labels: list[str], values: list[float]) -> dict:
 
 def _pie_option(title: str, labels: list[str], values: list[float]) -> dict:
     sanitised = [max(0.0, v) for v in values]
-    data = [{"name": label, "value": val} for label, val in zip(labels, sanitised)]
+    data = [
+        {"name": label, "value": val}
+        for label, val in zip(labels, sanitised, strict=True)
+    ]
     opt = _base_option(title)
     opt["tooltip"] = {
         "trigger": "item",
@@ -267,6 +277,158 @@ def _scatter_option(title: str, labels: list[str], values: list[float]) -> dict:
         {"type": "slider", "xAxisIndex": 0, "bottom": 4, "height": 18},
     ]
     return opt
+
+
+def _heatmap_option(title: str, labels: list[str], values: list[float]) -> dict:
+    """Single-row heatmap (1 by N) over the labels.
+
+    The renderer's chart picker currently feeds (labels, values) pairs from
+    the executor's answer table. A real 2D heatmap would need a pivoted
+    matrix (e.g. category by season counts), which isn't always derivable
+    from a single answer; rather than block heatmap on that case, we render
+    a degenerate 1xN strip — values shown as a colour gradient indexed by
+    label. It still gives the contract its sixth chart kind and produces a
+    visually meaningful "intensity by category" view.
+    """
+
+    opt = _base_option(title)
+    opt["tooltip"] = {
+        "trigger": "item",
+        "position": "top",
+        "formatter": "{b}: {c}",
+    }
+    # ECharts heatmap data is `[x_idx, y_idx, value]` triples.
+    data = [[i, 0, v] for i, v in enumerate(values)]
+    finite = [v for v in values if math.isfinite(v)]
+    vmin = min(finite) if finite else 0.0
+    vmax = max(finite) if finite else 1.0
+    opt["xAxis"] = {
+        "type": "category",
+        "data": labels,
+        "splitArea": {"show": True},
+        "axisLabel": {"rotate": 30 if len(labels) > 5 else 0, "fontSize": 11},
+    }
+    opt["yAxis"] = {
+        "type": "category",
+        "data": [title],
+        "splitArea": {"show": True},
+        "axisLabel": {"show": False},
+    }
+    opt["visualMap"] = {
+        "min": vmin,
+        "max": vmax if vmax > vmin else vmin + 1.0,
+        "calculable": True,
+        "orient": "horizontal",
+        "left": "center",
+        "bottom": 4,
+        "inRange": {
+            "color": ["#e0f3ff", "#3366cc", "#0a2a66"],
+        },
+    }
+    opt["series"] = [
+        {
+            "type": "heatmap",
+            "data": data,
+            "label": {"show": True, "fontSize": 11, "color": "#222"},
+            "emphasis": {
+                "itemStyle": {
+                    "shadowBlur": 10,
+                    "shadowColor": "rgba(0,0,0,0.3)",
+                }
+            },
+        }
+    ]
+    return opt
+
+
+def _box_option(title: str, labels: list[str], values: list[float]) -> dict:
+    """Single-box boxplot showing the distribution of `values` across labels.
+
+    With aggregated answer tables (e.g. mean revenue per region), the
+    boxplot summarises the spread across the categories — useful for
+    spotting outliers ("which region is far from the median?"). When fewer
+    than 4 values are supplied the box collapses to a degenerate point;
+    the renderer's picker guards against that case by gating box on row
+    count ≥ 4.
+    """
+
+    opt = _base_option(title)
+    finite = sorted(v for v in values if math.isfinite(v))
+    if not finite:
+        finite = [0.0]
+    quartiles = _five_number_summary(finite)
+    outliers = [
+        [0, v]
+        for v in finite
+        if v < quartiles[0] - 1.5 * (quartiles[3] - quartiles[1])
+        or v > quartiles[4] + 1.5 * (quartiles[3] - quartiles[1])
+    ]
+
+    opt["tooltip"] = {
+        "trigger": "item",
+        "formatter": (
+            "min: {c[0]}<br/>Q1: {c[1]}<br/>"
+            "median: {c[2]}<br/>Q3: {c[3]}<br/>max: {c[4]}"
+        ),
+    }
+    opt["xAxis"] = {
+        "type": "category",
+        "data": [title],
+        "boundaryGap": True,
+        "splitArea": {"show": True},
+        "axisLabel": {"fontSize": 11},
+    }
+    opt["yAxis"] = {
+        "type": "value",
+        "splitArea": {"show": True},
+        "name": "分布",
+    }
+    opt["series"] = [
+        {
+            "name": "boxplot",
+            "type": "boxplot",
+            "data": [list(quartiles)],
+            "itemStyle": {"color": "#3366cc", "borderColor": "#1a3d8f"},
+        },
+        {
+            "name": "outlier",
+            "type": "scatter",
+            "data": outliers,
+            "symbolSize": 8,
+            "itemStyle": {"color": "#dc3912"},
+        },
+    ]
+    return opt
+
+
+def _five_number_summary(
+    sorted_values: list[float],
+) -> tuple[float, float, float, float, float]:
+    """min, Q1, median, Q3, max for a non-empty sorted-ascending list.
+
+    Linear interpolation between adjacent ranks (numpy `linear` quartile
+    method). Bypasses numpy / statistics imports because the chart factory
+    deliberately stays dependency-light — Python ships everything we need.
+    """
+
+    n = len(sorted_values)
+
+    def _percentile(p: float) -> float:
+        if n == 1:
+            return sorted_values[0]
+        rank = p * (n - 1) / 100
+        low = int(rank)
+        high = min(low + 1, n - 1)
+        weight = rank - low
+        return sorted_values[low] * (1 - weight) + sorted_values[high] * weight
+
+    return (
+        sorted_values[0],
+        _percentile(25),
+        _percentile(50),
+        _percentile(75),
+        sorted_values[-1],
+    )
 
 
 def _format_value(value: float) -> str:

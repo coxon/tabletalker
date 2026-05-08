@@ -4,8 +4,8 @@ The submission contract (`docs/submission-contract.md` §2) requires every
 analyze response to point at a rendered HTML report. This package owns
 that artefact end-to-end:
 
-  - `charts` — pure SVG chart builders (bar/line/pie). No JS, no remote
-    CDNs; the eval network may block them.
+  - `charts` — ECharts option builders (bar/line/pie/scatter). The runtime
+    is inlined; the eval network may block remote CDNs.
   - `render` — Jinja-based HTML composition + the chart-anchor invariant
     check (every `Chart.html_anchor` must correspond to a `<div id=...>`).
   - `store` — in-memory id → HTML cache so the `GET /reports/{id}.html`

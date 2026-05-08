@@ -61,6 +61,26 @@ async def _run_one(
 ) -> BatchResult:
     async with semaphore:
         started = time.perf_counter()
+        # Follow-ups are explicitly out-of-scope for offline batch per
+        # 赛题4 §4.2 ("追问题在标准分析题的报告生成完成后由评委即时发起").
+        # We surface them as `status="skipped"` rather than dispatch them
+        # as a fresh standard_analysis (which would silently lose the
+        # parent context the follow-up depends on). The output bundle
+        # documents the skip so the operator knows to handle these
+        # interactively.
+        if task.task_type == "follow_up":
+            return BatchResult(
+                task=task,
+                response=None,
+                status="skipped",
+                error=(
+                    "follow-up tasks are not run by the offline batch path; "
+                    "they must be exercised against the live /v1/follow-up "
+                    "endpoint while the parent session is still in memory "
+                    "(see 赛题4 README §4.2)."
+                ),
+                elapsed_ms=0.0,
+            )
         try:
             request = AnalyzeRequest(
                 workspace=workspace,

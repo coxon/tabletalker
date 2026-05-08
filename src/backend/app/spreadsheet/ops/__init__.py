@@ -8,6 +8,7 @@ an `OpResult` for the trace.
 from app.spreadsheet.ops.aggregate import handle_aggregate, handle_group_by
 from app.spreadsheet.ops.derive import handle_add_column
 from app.spreadsheet.ops.join import handle_join
+from app.spreadsheet.ops.json_ops import handle_explode_json
 from app.spreadsheet.ops.load import handle_load_csv, handle_load_excel
 from app.spreadsheet.ops.output import handle_to_chart, handle_to_table
 from app.spreadsheet.ops.reshape import handle_melt, handle_pivot
@@ -29,6 +30,7 @@ HANDLERS = {
     "join": handle_join,
     "pivot": handle_pivot,
     "melt": handle_melt,
+    "explode_json": handle_explode_json,
     "to_table": handle_to_table,
     "to_chart": handle_to_chart,
 }

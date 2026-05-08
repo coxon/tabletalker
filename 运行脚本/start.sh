@@ -49,6 +49,16 @@ echo "==> Frontend: installing deps"
 ( cd src/frontend && pnpm install --frozen-lockfile )
 
 echo "==> Launching backend on :8000 and frontend on :3000"
+# Log file for the backend; tee preserves the tty stream for interactive
+# starts while also persisting full stderr/stdout to disk so the eval
+# runner can re-read failed-case context after the run finishes (the
+# previous default lost stderr at terminal close, making 502 root-cause
+# analysis on cases like 08_logistics_routes require a re-run).
+# Override with TT_BACKEND_LOG=/path/to/file if you need a stable
+# location for log shipping; default is /tmp so it doesn't pollute the
+# repo.
+TT_BACKEND_LOG="${TT_BACKEND_LOG:-/tmp/tt-backend.log}"
+echo "    backend log: $TT_BACKEND_LOG"
 # `--proxy-headers` lets uvicorn honour `X-Forwarded-Proto` /
 # `X-Forwarded-Host` from a TLS-terminating reverse proxy. The backend
 # uses the request URL to build absolute `report_html_url`s; without
@@ -66,7 +76,7 @@ echo "==> Launching backend on :8000 and frontend on :3000"
 # APP_TRUSTED_PROXIES entirely.
 ( cd src/backend && uv run uvicorn app.main:app \
     --host 0.0.0.0 --port 8000 \
-    --proxy-headers ) &
+    --proxy-headers 2>&1 | tee "$TT_BACKEND_LOG" ) &
 BACK_PID=$!
 ( cd src/frontend && pnpm dev --port 3000 ) &
 FRONT_PID=$!

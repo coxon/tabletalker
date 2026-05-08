@@ -195,7 +195,12 @@ async def follow_up(
         SESSION_STORE.discard_turn(
             session.id, turn_index, allocation_token=alloc_token
         )
-        raise HTTPException(exc.status_code, str(exc)) from exc
+        # Forward stage timings on error too — see analyze.py for rationale.
+        raise HTTPException(
+            exc.status_code,
+            str(exc),
+            headers={"X-Stage-Timings": serialize_header(timer)},
+        ) from exc
     except Exception:
         SESSION_STORE.discard_turn(
             session.id, turn_index, allocation_token=alloc_token

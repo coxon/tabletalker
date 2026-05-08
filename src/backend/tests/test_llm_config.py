@@ -3,7 +3,7 @@
 The runtime depends on three required env vars (`LLM_BASE_URL`,
 `LLM_API_KEY`, `LLM_MODEL`) and one optional override (`LLM_TIMEOUT_S`).
 We test the optional path explicitly because the default was raised
-from 30 s → 120 s in the same commit that added the override; it would
+from 30 s → 300 s in the same commit that added the override; it would
 be easy to accidentally drop the override later and not notice in CI.
 """
 
@@ -31,7 +31,7 @@ def _set_env(monkeypatch: pytest.MonkeyPatch, **extra: str) -> None:
 def test_from_env_uses_default_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     _set_env(monkeypatch)
     cfg = LLMConfig.from_env()
-    assert cfg.timeout_s == 120.0
+    assert cfg.timeout_s == 300.0
 
 
 def test_from_env_honours_override(monkeypatch: pytest.MonkeyPatch) -> None:

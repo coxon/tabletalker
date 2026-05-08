@@ -61,6 +61,21 @@ def evaluate(expr: Expr, df: pd.DataFrame) -> Any:
 def _apply_binop(op: str, left: Any, right: Any) -> Any:
     # pandas Series operators are vectorised — works for both Series×Series
     # and Series×scalar.
+    #
+    # Arithmetic operators (`+`, `-`, `*`, `/`) reject string-on-string
+    # operands at the DSL level so a planner mistake (e.g. subtracting a
+    # string literal `"1970-01-01"` from a string-typed `txn_date`
+    # column when trying to extract the hour) surfaces as a clean
+    # ExprError → 422 with column / type detail, rather than as a raw
+    # `TypeError: unsupported operand type(s) for -: 'str' and 'str'`
+    # from pandas. The planner prompt teaches this in `Expression DSL`,
+    # but defensive validation here catches the bug regardless.
+    if op in ("-", "*", "/"):
+        # `+` is excluded — pandas accepts string concatenation, and
+        # `series + literal` for numeric is the most common case. We
+        # only flag the strictly-numeric operators.
+        _check_arithmetic_types(op, left, "left")
+        _check_arithmetic_types(op, right, "right")
     if op == "+":
         return left + right
     if op == "-":
@@ -174,3 +189,45 @@ def _str_method(value: Any, method: str) -> Any:
     if method == "len":
         return len(str(value))
     raise ExprError(f"unhandled str method {method!r}")
+
+
+def _check_arithmetic_types(op: str, value: Any, side: str) -> None:
+    """Reject string operands for `-`, `*`, `/` before pandas raises a
+    raw TypeError mid-execution.
+
+    Common planner mistake: trying to extract `hour` from a string-typed
+    `txn_date` column by subtracting `"1970-01-01"`. pandas would raise
+    `TypeError: unsupported operand type(s) for -: 'str' and 'str'`,
+    which the executor wraps as OpExecutionError → 422. Catching it
+    here gives a planner-actionable error message instead.
+
+    `value` may be a pandas Series (Series-on-Series or Series-on-scalar)
+    or a literal scalar. For Series we check the dtype; for scalars we
+    check the Python type. Numeric and datetime-like dtypes pass.
+    """
+
+    if isinstance(value, pd.Series):
+        if pd.api.types.is_numeric_dtype(value) or pd.api.types.is_bool_dtype(value):
+            return
+        if pd.api.types.is_datetime64_any_dtype(value) or pd.api.types.is_timedelta64_dtype(value):
+            return
+        # object/string/categorical/etc — refuse arithmetic.
+        raise ExprError(
+            f"binop {op!r} requires numeric/datetime operands; {side} side is "
+            f"a Series of dtype {value.dtype} (column values look like text or "
+            "categorical). If you wanted to extract a date component, parse the "
+            "column to datetime first via the appropriate op."
+        )
+    if isinstance(value, (int, float, bool)):
+        return
+    # Strings, dicts, lists, None on the scalar side.
+    if isinstance(value, str):
+        raise ExprError(
+            f"binop {op!r} requires a numeric scalar; {side} side is a string "
+            f"literal {value!r}. Use a numeric literal, or one of the string "
+            "functions (lower/upper/len) instead."
+        )
+    raise ExprError(
+        f"binop {op!r} requires numeric/datetime operands; {side} side has "
+        f"unsupported type {type(value).__name__}"
+    )

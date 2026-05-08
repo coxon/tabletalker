@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, ClassVar, Literal
 
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
 # ---------------------------------------------------------------------------
 # Tiny expression DSL for `add_column`
@@ -273,17 +273,44 @@ class JoinOp(_OpBase):
     kind: Literal["join"]
     left: str
     right: str
-    on: list[str]
+    # Either symmetric `on` (same key name on both sides) or asymmetric
+    # `left_on` + `right_on` (e.g. `id` on left, `movie_id` on right — the
+    # TMDB shape). The validator enforces exactly one mode is supplied so
+    # the executor doesn't have to guess.
+    on: list[str] = Field(default_factory=list)
+    left_on: list[str] = Field(default_factory=list)
+    right_on: list[str] = Field(default_factory=list)
     how: Literal["inner", "left", "right", "outer"] = "inner"
 
     op_inputs: ClassVar[tuple[str, ...]] = ("left", "right")
 
-    @field_validator("on")
-    @classmethod
-    def _non_empty_on(cls, v: list[str]) -> list[str]:
-        if not v:
-            raise ValueError("join.on must contain at least one key column")
-        return v
+    @model_validator(mode="after")
+    def _validate_join_keys(self) -> JoinOp:
+        symmetric = bool(self.on)
+        asymmetric = bool(self.left_on) or bool(self.right_on)
+        if symmetric and asymmetric:
+            raise ValueError(
+                "join: use either `on` (symmetric) OR `left_on`/`right_on` "
+                "(asymmetric), not both"
+            )
+        if not symmetric and not asymmetric:
+            raise ValueError(
+                "join must specify keys: provide `on=[...]` for shared key "
+                "names, or `left_on=[...]` + `right_on=[...]` when key names "
+                "differ between the two tables (e.g. left.id ↔ right.movie_id)"
+            )
+        if asymmetric:
+            if not self.left_on or not self.right_on:
+                raise ValueError(
+                    "join: when using asymmetric keys, both `left_on` and "
+                    "`right_on` must be non-empty"
+                )
+            if len(self.left_on) != len(self.right_on):
+                raise ValueError(
+                    f"join: `left_on` ({len(self.left_on)} keys) must align "
+                    f"with `right_on` ({len(self.right_on)} keys) by position"
+                )
+        return self
 
 
 class PivotOp(_OpBase):
@@ -319,6 +346,28 @@ class ToTableOp(_OpBase):
     title: str | None = None
 
 
+class ExplodeJsonOp(_OpBase):
+    """Parse + unroll a JSON-string column (TMDB genres / cast / crew).
+
+    `column` names a column whose cells hold JSON-encoded lists or dicts.
+    `extract` (optional) names a field to pluck from each parsed dict —
+    use it to reduce `[{"name":"Action"},{"name":"Comedy"}]` to
+    `["Action", "Comedy"]` before the explode unrolls those into rows.
+    """
+
+    kind: Literal["explode_json"]
+    src: str
+    column: str
+    extract: str | None = None
+
+    @field_validator("column")
+    @classmethod
+    def _column_non_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("explode_json.column must be a non-empty column name")
+        return v
+
+
 class ToChartOp(_OpBase):
     kind: Literal["to_chart"]
     src: str
@@ -348,6 +397,52 @@ class ToChartOp(_OpBase):
         return v
 
 
+class RefuseOp(_OpBase):
+    """Planner-side refusal — short-circuit the pipeline for trap questions.
+
+    Issued by the planner LLM when it judges the user's request matches one
+    of the four trap categories from `docs/refusal-policy.md`:
+      1. Field missing — the question references a column the data doesn't
+         have (e.g. analyse by 种族 when no Race column exists).
+      2. Dimension mismatch — the question is about an entirely different
+         data domain than what was uploaded.
+      3. Hallucination bait — the user asserts a specific statistic and
+         asks for explanation; the system should compute first and correct,
+         NOT confirm the false claim. (`is_refusal=False` for this category
+         per refusal-policy §1; the response carries a Cat 3 narrative.)
+      4. Out-of-scope — prompt-leak attempts, file-system access, network
+         requests, anything that isn't analyse-the-uploaded-data.
+
+    The handler short-circuits to a refusal response when the plan starts
+    with this op, skipping execute / evidence / finalize. The narrative
+    travels straight into `AnalyzeResponse.summary`. Categories 1 / 2 / 4
+    set `is_refusal=True`; Cat 3 keeps `is_refusal=False` because we ARE
+    answering, just correcting the premise first.
+
+    Why a typed op rather than a sentinel string in the plan: keeps the
+    surface area auditable (Pydantic rejects malformed refusals before
+    they reach the handler) and lets the planner emit refuse alongside
+    other ops in principle (e.g. compute then refuse), even though today
+    we only handle the refuse-only case.
+    """
+
+    kind: Literal["refuse"]
+    category: Literal[1, 2, 3, 4]
+    narrative: str
+    op_inputs: ClassVar[tuple[str, ...]] = ()
+
+    @field_validator("narrative")
+    @classmethod
+    def _narrative_non_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError(
+                "refuse.narrative must be a non-empty Chinese sentence "
+                "matching the canonical phrasing for the chosen category "
+                "(see docs/refusal-policy.md §2)"
+            )
+        return v
+
+
 _OpUnion = (
     LoadCsvOp
     | LoadExcelOp
@@ -362,6 +457,8 @@ _OpUnion = (
     | JoinOp
     | PivotOp
     | MeltOp
+    | ExplodeJsonOp
+    | RefuseOp
     | ToTableOp
     | ToChartOp
 )
