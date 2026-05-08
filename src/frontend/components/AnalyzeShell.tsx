@@ -3,6 +3,11 @@
 // Top-level client island that owns the conversation. Single component
 // because state is shallow (~5 fields) and a Context layer would just
 // be ceremony. Refresh = reset = matches the backend's TTL'd session.
+//
+// The page chrome (`<TopBar />`, backend health pill, primary nav)
+// lives in the shell layout one level up — this component renders
+// only the analyze surface itself, so a route swap to /history doesn't
+// have to remount it.
 
 import { forwardRef, useCallback, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -17,13 +22,7 @@ import { Composer, type ComposerHandle } from "./Composer";
 import { Dropzone } from "./Dropzone";
 import { Palette } from "./Palette";
 import { SkeletonTurn } from "./SkeletonTurn";
-import { TopBar } from "./TopBar";
 import { TurnCard } from "./TurnCard";
-
-interface AnalyzeShellProps {
-  backendOnline: boolean;
-  backendLabel: string;
-}
 
 interface ApiErrorBody {
   detail?: string;
@@ -42,7 +41,7 @@ async function readError(response: Response): Promise<string> {
   }
 }
 
-export function AnalyzeShell({ backendOnline, backendLabel }: AnalyzeShellProps) {
+export function AnalyzeShell() {
   const [file, setFile] = useState<File | null>(null);
   const [question, setQuestion] = useState("");
   const [phase, setPhase] = useState<AnalyzePhase>({ name: "idle" });
@@ -135,11 +134,6 @@ export function AnalyzeShell({ backendOnline, backendLabel }: AnalyzeShellProps)
 
   return (
     <>
-      <TopBar
-        backendOnline={backendOnline}
-        backendLabel={backendLabel}
-        onOpenPalette={() => setPaletteOpen(true)}
-      />
       <main className="mx-auto flex w-full max-w-[88ch] flex-col gap-8 px-6 py-10">
         {parent ? null : <Hero />}
 
