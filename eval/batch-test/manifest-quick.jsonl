@@ -1,0 +1,3 @@
+{"file": "01_ibm_attrition.csv", "question": "哪些岗位（JobRole）的离职率（Attrition=Yes 占比）最高？请给出 top 3 并说明可能的差异来源。"}
+{"file": "02_superstore_sales.csv", "question": "哪个商品子类别（Sub-Category）的销售额（Sales）总和最高？请给出 top 5。"}
+{"file": "05_shopping_behavior.csv", "question": "哪些品类（Category）的平均消费金额（Purchase Amount (USD)）最高？请给出 top 3。"}

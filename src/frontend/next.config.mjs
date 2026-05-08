@@ -7,6 +7,10 @@ const nextConfig = {
   async rewrites() {
     return [
       {
+        source: "/api/batch",
+        destination: `${BACKEND_URL}/v1/batch`,
+      },
+      {
         source: "/reports/:path*",
         destination: `${BACKEND_URL}/reports/:path*`,
       },

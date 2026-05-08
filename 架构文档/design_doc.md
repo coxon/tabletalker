@@ -1,6 +1,6 @@
 # 结构化数据智能分析与洞察报告生成系统 · 设计文档
 
-> 版本: v1.0 (2026-05-06)
+> 版本: v1.1 (2026-05-08)
 > 项目: TableTalker
 > 提交对应赛题 4: 结构化数据智能分析与洞察报告生成
 >
@@ -56,18 +56,26 @@ TableTalker 是一个面向 **结构化数据 (CSV / Excel)** 的智能分析 Ag
 
 ## 2. 系统架构
 
-> 对外仅暴露 `/v1/analyze`、`/v1/follow-up`、`/reports/{id}.html` 三条路径，
-> 与 `docs/submission-contract.md` 完全一致；响应 JSON 形状逐字段冻结，
+> 对外暴露 `/v1/analyze`、`/v1/follow-up`、`/reports/{id}.html`、
+> `/v1/sessions`、`/v1/sessions/{id}`、`/v1/batch` 六条路径。
+> 核心分析响应 JSON 形状与 `docs/submission-contract.md` 逐字段冻结，
 > 不得漂移。
 
 ### 2.1 拓扑
 
 ```text
-浏览器 ──HTTP──▶  Next.js 前端 (上传 / 输入 / 报告 iframe / 追问)
-                       │
-                       ▼ POST /v1/analyze
-                       ▼ POST /v1/follow-up
-                       ▼ GET  /reports/{id}.html
+浏览器 ──HTTP──▶  Next.js 前端
+                  │  ├─ /           提问分析（上传 / 输入 / 报告 iframe / 追问）
+                  │  ├─ /history    历史分析（搜索 / 筛选 / 详情展开 / 删除）
+                  │  └─ /batch      批量评测（manifest + 多文件上传 / xlsx 下载）
+                  │
+                  │  Next.js API Routes (代理层，无 CORS)
+                  ▼  POST /api/analyze      → /v1/analyze
+                  ▼  POST /api/follow-up    → /v1/follow-up
+                  ▼  GET  /api/sessions     → /v1/sessions
+                  ▼  GET|DELETE /api/sessions/{id} → /v1/sessions/{id}
+                  ▼  POST /api/batch        → /v1/batch
+                  ▼  GET  /api/reports/{id} → /reports/{id}.html
                 ┌──────────────────────────────┐
                 │  FastAPI 后端                │
                 │  ├─ 上传 + workspace         │
@@ -89,8 +97,13 @@ TableTalker 是一个面向 **结构化数据 (CSV / Excel)** 的智能分析 Ag
                 │  ├─ Report Renderer          │
                 │  │   (Jinja + 内联 SVG)      │
                 │  ├─ Report Store (内存)      │
-                │  └─ Session Store            │
-                │     (LRU + TTL，进程内)      │
+                │  ├─ Session History (SQLite)  │
+                │  │   (持久化索引 + 全文搜索) │
+                │  ├─ Session Store            │
+                │  │   (LRU + TTL，进程内)     │
+                │  └─ Batch Runner             │
+                │     (manifest 驱动批量分析,  │
+                │      输出 xlsx 结果文件)     │
                 └──────────────────────────────┘
 ```
 
@@ -107,6 +120,8 @@ TableTalker 是一个面向 **结构化数据 (CSV / Excel)** 的智能分析 Ag
 | Finalize | 第二次 LLM，仅看 `answer` JSON，输出叙事；JSON 模式 + 字段校验 | `app/analyze/handler.py::_finalize` | PR #4 |
 | Report Renderer | Jinja2 模板 + 自研 SVG 图表（bar / line / pie） | `app/report/render.py` + `report/charts.py` | PR #5 |
 | Session Store | LRU + TTL（默认 24h），父轮状态供 follow-up 复用 | `app/session/store.py` | PR #6 |
+| Session History | SQLite 持久化索引，支持全文搜索、状态筛选、统计 | `app/api/sessions.py` + `app/session/history.py` | PR #18 |
+| Batch Runner | manifest 驱动批量分析，顺序执行多任务，输出 xlsx 结果 | `app/api/batch.py` | PR #16 |
 | Stage 埋点 | 每阶段 `perf_counter` 时间戳，经 `X-Stage-Timings` 响应头暴露 | `app/analyze/stages.py` | PR #8 |
 
 ### 2.3 关键时序：单次分析
@@ -233,15 +248,24 @@ AST 解析器（仅允许列引用、字面量、`+ - * / == != < <= > >= and or
 `rlimit`、没有 `HTTPS_PROXY` 清空 — 因为 LLM 这一头根本不持有可执行
 能力。这也是 §4.1 表内"启动 ≤ 100 ms"开销不存在的原因。
 
-### 3.4 为什么会话状态在内存
+### 3.4 会话状态：双层存储
 
-- 评测窗口最多 ~100 个会话，单进程内存承载充足（每 session 持有
-  ~20 KiB Python 对象 + 一份原始上传文件）；
-- 引入数据库（Postgres / SQLite）会扩大主观项 §6.B.1 安全 / 性能审计面，
-  风险大于收益；
-- TTL（默认 24h）+ LRU（容量上限 10 000）在 `SessionStore` 内实现；
-  评测规模 ≪ 容量，LRU 实际不会触发淘汰；
-- 重启即清空——评测期不重启即可，赛后部署再加持久化层。
+会话状态分两层：
+
+- **热层 (Session Store)**：进程内 LRU + TTL（默认 24h），持有父轮的
+  findings / cohorts / chart anchors / 原始数据引用，供 follow-up 实时
+  复用。评测窗口最多 ~100 个会话，单进程内存承载充足。
+- **持久层 (Session History)**：SQLite 数据库（`data/sessions.db`），
+  每次 `/v1/analyze` 和 `/v1/follow-up` 完成后异步写入会话索引记录。
+  支持 `/v1/sessions` 接口的全文搜索（`q` 参数）、状态筛选
+  （completed / refused）、统计聚合（total / this_week / continuable），
+  以及 `/v1/sessions/{id}` 的详情查询和 DELETE 删除。
+
+这种分层设计的好处：
+1. follow-up 实时追问走内存热层，零延迟；
+2. 历史分析页面走 SQLite 持久层，重启不丢记录；
+3. SQLite 是零配置嵌入式数据库，不扩大审计面（无需外部 Postgres / Redis）；
+4. 前端通过 Next.js API 代理路由访问持久层，不暴露后端地址。
 
 ### 3.5 拒答的非对称代价
 
@@ -372,7 +396,12 @@ DEMO 视频与最终自测报告依据这些产物组装。组委会的复现性
 | #6 | 会话状态、follow-up 路由、refusal 分类器、多轮 UI | ✅ |
 | #7 | 前端 UI（上传 / 输入 / 进度态 / 报告 iframe） | ✅ |
 | #8 | 15 数据集自测、性能 P50/P95、stage 埋点、自测报告刷新 | ✅ |
-| #9 | DEMO 视频、公网 URL、本文件 v1 终版 | 🚧 (本 PR) |
+| #9 | DEMO 视频、公网 URL、本文件 v1 终版 | 🚧 |
+| #16 | 批量评测 `/v1/batch` — manifest 驱动多任务运行 + xlsx 输出 | ✅ |
+| #17 | 官方格式自测指标渲染器 + cases-official 测试套件 | ✅ |
+| #18 | 会话持久化 SQLite 索引 + `/v1/sessions` 历史分析 API | ✅ |
+| #19 | 前端导航框架 + /analyze、/history、/batch 三页路由 | ✅ |
+| — | 架构文档 v1.1 更新（本次）：持久化、批量评测、历史 UI | ✅ |
 
 详见 `docs/roadmap.md`。
 
@@ -410,14 +439,13 @@ DEMO 视频与最终自测报告依据这些产物组装。组委会的复现性
    `genres` 字段会被当字符串。
 3. **跨表 join 候选键检测未实现**：本提交规模为单文件，未触发该路径。
 4. **图表类型仅 3 种**：bar / line / pie 已满足赛题 ≥ 3 种最低要求；
-   scatter / heatmap / box 留待 v1.1。
-5. **会话状态非持久化**：进程内 LRU + TTL，重启即清空。评测期不重启
-   即可。
-6. **诱导幻觉与越权类拒答未单独评测**：`eval/cases.yaml` 当前覆盖
+   scatter / heatmap / box 留待 v1.1。图表当前为内联 SVG 静态渲染，
+   后续可升级为 ECharts 交互式图表。
+5. **诱导幻觉与越权类拒答未单独评测**：`eval/cases.yaml` 当前覆盖
    "字段缺失"和"维度错配"两类；详见自测报告 §6 "未实现"行。
-7. **大文件采样路径**：20 MiB 上限内不采样，超限直接 413；TableProfile
+6. **大文件采样路径**：20 MiB 上限内不采样，超限直接 413；TableProfile
    不输出 `sampling_rate` 字段（不需要）。
-8. **测试用 15 数据集是合成数据**：`eval/datasets/01..15` 用 numpy RNG
+7. **测试用 15 数据集是合成数据**：`eval/datasets/01..15` 用 numpy RNG
    生成，结构贴近真实但非组委会提供的公开数据集；最终评测以 `赛题4/`
    路径下的真实数据集为准，自测仅用于回归。
 
@@ -444,6 +472,10 @@ DEMO 视频与最终自测报告依据这些产物组装。组委会的复现性
 | `eval/run.py` / `render_metrics.py` | 自测脚本 + 指标渲染 |
 | `src/backend/app/spreadsheet/` | Typed Plan 引擎（schema / planner / executor / 15 个 ops） |
 | `src/backend/app/analyze/` | handler + profiler + evidence + stages 埋点 |
-| `src/backend/app/api/` | `/v1/analyze`、`/v1/follow-up`、`/reports/{id}.html` |
-| `src/backend/app/session/` | LRU + TTL 会话存储 + follow-up prompt |
+| `src/backend/app/api/` | `/v1/analyze`、`/v1/follow-up`、`/reports/{id}.html`、`/v1/sessions`、`/v1/batch` |
+| `src/backend/app/session/` | LRU + TTL 会话存储 + follow-up prompt + SQLite 持久化索引 |
 | `src/backend/app/report/` | Jinja 模板 + 内联 SVG 图表 + 内存 store |
+| `src/frontend/app/(shell)/` | 三页路由：`/`（提问分析）、`/history`（历史分析）、`/batch`（批量评测） |
+| `src/frontend/app/api/` | Next.js 代理路由：analyze、follow-up、sessions、batch、reports |
+| `src/frontend/components/` | TopBar（三 tab 导航）、AnalyzeShell、Composer、Dropzone、TurnCard 等 |
+| `src/frontend/lib/sessions.ts` | 会话相关 TypeScript 类型定义 |

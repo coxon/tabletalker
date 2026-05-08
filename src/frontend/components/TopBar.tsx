@@ -45,6 +45,7 @@ interface NavItem {
 const NAV_ITEMS: readonly NavItem[] = [
   { href: "/", label: "提问分析" },
   { href: "/history", label: "历史分析" },
+  { href: "/batch", label: "批量评测" },
 ] as const;
 
 function isActive(pathname: string, href: string): boolean {

@@ -112,7 +112,8 @@ async def batch(
 
         saved_names: set[str] = set()
         for upload in files:
-            name = _safe_filename(upload.filename or "")
+            raw_name = upload.filename or ""
+            name = _safe_filename(raw_name)
             if not name:
                 continue  # blank slot from the multipart form
             if name not in referenced_names:

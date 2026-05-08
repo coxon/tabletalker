@@ -16,6 +16,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 # Load .env from repo root (two levels up from this file).
 _env_file = Path(__file__).resolve().parents[3] / ".env"
@@ -31,6 +32,13 @@ from app.api.sessions import router as sessions_router
 from app.api.spreadsheet import router as spreadsheet_router
 
 app = FastAPI(title="TableTalker Backend", version=__version__)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["x-batch-tasks", "x-batch-errors", "content-disposition"],
+)
 # Trust `X-Forwarded-Proto` / `X-Forwarded-Host` / `X-Forwarded-For`
 # from the reverse proxy in front of uvicorn. We mount the middleware
 # at the app level (rather than relying solely on `uvicorn --proxy-headers`)

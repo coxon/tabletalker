@@ -83,12 +83,18 @@ execution order — never reference a slot before it's produced.
 
 - load_csv  { kind, out, path }
 - load_excel { kind, out, path, sheet? }
+    RULE: path MUST be the exact filename shown in the "--- File: <name> ---"
+          header of the user message. Do NOT invent, abbreviate, or guess
+          filenames — use only the names provided.
 - select_columns { kind, out, src, columns: [..] }
 - filter_rows { kind, out, src, where: <expr> }
 - add_column { kind, out, src, name, expr: <expr> }
-- group_by { kind, out, src, by: [..] }    # output feeds into `aggregate`
+- group_by { kind, out, src, by: [..] }
 - aggregate { kind, out, src, aggs: [{ column, fn, as }] }
     fn ∈ {sum, mean, count, min, max, median, nunique}
+    RULE: aggregate.src MUST reference the `out` of a `group_by` op.
+          Never point aggregate.src at load_csv, select_columns, filter_rows,
+          or any other non-group_by op. Always emit group_by first, then aggregate.
 - sort { kind, out, src, by: [..], desc?: [bool] }
 - head { kind, out, src, n }
 - tail { kind, out, src, n }
