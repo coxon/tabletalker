@@ -33,6 +33,11 @@ from app.report.charts import ChartImage, ChartKind, build_chart
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 _TEMPLATE_NAME = "report.html.j2"
 
+_ECHARTS_JS_PATH = _TEMPLATE_DIR / "echarts.min.js"
+_ECHARTS_JS: str = ""
+if _ECHARTS_JS_PATH.exists():
+    _ECHARTS_JS = _ECHARTS_JS_PATH.read_text(encoding="utf-8")
+
 # `StrictUndefined` is on purpose — silently rendering "" for a missing
 # field would mask a contract drift.
 _env = Environment(
@@ -84,6 +89,7 @@ def render_report(
     """
 
     chart_images = _select_and_build_charts(answer, is_refusal=is_refusal)
+    has_interactive = any(img.echarts_option for img in chart_images)
     html = _env.get_template(_TEMPLATE_NAME).render(
         report_id=report_id,
         title=title,
@@ -92,6 +98,7 @@ def render_report(
         recommendations=recommendations,
         is_refusal=is_refusal,
         charts=chart_images,
+        echarts_js=_ECHARTS_JS if has_interactive else "",
     )
 
     _assert_anchors_present(html, chart_images)
@@ -147,7 +154,10 @@ def _select_and_build_charts(
     if value_col is None:
         return []
 
-    labels = [str(r.get(label_col, "")) for r in rows]
+    if label_col == value_col:
+        labels = [str(i + 1) for i in range(len(rows))]
+    else:
+        labels = [str(r.get(label_col, "")) for r in rows]
     values = [_to_float(r.get(value_col)) for r in rows]
 
     title_base = f"{value_col} by {label_col}"
@@ -181,6 +191,16 @@ def _select_and_build_charts(
                 values=values,
             )
         )
+    if len(rows) >= 3:
+        images.append(
+            build_chart(
+                "scatter",
+                title=f"{value_col} 分布",
+                anchor_id=f"chart-{_slug(value_col)}-scatter",
+                labels=labels,
+                values=values,
+            )
+        )
     return images
 
 
@@ -196,12 +216,16 @@ def _pick_axis_columns(
 
     label_col = columns[0]
     value_col: str | None = None
-    for col in columns[1:] if len(columns) > 1 else columns:
-        if col == label_col and len(columns) > 1:
+    search_cols = columns[1:] if len(columns) > 1 else columns
+    for col in search_cols:
+        if col == label_col:
             continue
         if all(_is_numeric(r.get(col)) for r in rows):
             value_col = col
             break
+    if value_col is None and len(columns) == 1:
+        if all(_is_numeric(r.get(label_col)) for r in rows):
+            value_col = label_col
     return label_col, value_col
 
 

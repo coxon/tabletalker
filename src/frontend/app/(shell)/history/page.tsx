@@ -408,7 +408,7 @@ function SessionDetailPanel({
           </p>
           <div className="mt-2 flex items-center gap-2">
             <a
-              href={`/api/reports/${turn.response_id}`}
+              href={`/reports/${turn.response_id}.html`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 text-[12px] font-medium text-[--color-fg-muted] hover:text-[--color-fg]"

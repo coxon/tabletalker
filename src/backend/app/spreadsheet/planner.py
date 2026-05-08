@@ -123,6 +123,15 @@ user — they must be wrapped in a render op. Example ending:
 
 If the question asks for a chart, end with `to_chart`. Otherwise end with `to_table`.
 
+## CHART-FRIENDLY OUTPUT
+
+The final table is used to auto-generate interactive charts (bar, line, pie, scatter).
+To ensure charts render correctly:
+- The table MUST have at least 2 columns: one categorical/label column and one numeric column.
+- Prefer group_by + aggregate to produce a multi-row breakdown (e.g. count per category)
+  rather than a single summary row.
+- Avoid outputting a single-row table with just one total — break it down by category.
+
 ## Output format
 
 Return ONLY the JSON Plan. No prose, no markdown fences. Start with `{`.

@@ -1,22 +1,24 @@
-language: en-US
+language: zh-CN
 early_access: false
 tone_instructions: |
-  Be direct and concrete. Cite file path and line. Skip pleasantries.
+  Be concise. Only flag real bugs, security issues, or logic errors.
+  Skip style nitpicks, naming preferences, and minor suggestions.
+  Do not request tests for hackathon-pace code unless it touches security.
 
 reviews:
-  profile: assertive
+  profile: chill
   request_changes_workflow: false
   high_level_summary: true
-  high_level_summary_in_walkthrough: true
+  high_level_summary_in_walkthrough: false
   poem: false
-  review_status: true
-  collapse_walkthrough: false
-  changed_files_summary: true
-  sequence_diagrams: true
-  assess_linked_issues: true
-  related_issues: true
-  related_prs: true
-  suggested_labels: true
+  review_status: false
+  collapse_walkthrough: true
+  changed_files_summary: false
+  sequence_diagrams: false
+  assess_linked_issues: false
+  related_issues: false
+  related_prs: false
+  suggested_labels: false
   auto_review:
     enabled: true
     drafts: false
@@ -24,15 +26,16 @@ reviews:
       - main
   path_filters:
     - "!演示视频/**"
-    - "!自测报告/eval_artifacts/**"
+    - "!自测报告/**"
+    - "!架构文档/**"
+    - "!eval/**"
+    - "!knowledge-base/**"
     - "!**/*.lock"
     - "!**/*.lockb"
     - "!**/dist/**"
     - "!**/.next/**"
     - "!**/node_modules/**"
-  labeling_instructions:
-    - label: "needs-tests"
-      instructions: Apply when the PR adds runtime code without matching tests.
+    - "!**/*.min.js"
 
 chat:
   auto_reply: true

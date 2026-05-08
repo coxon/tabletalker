@@ -1,5 +1,5 @@
-{# Report template — keep it inline-only. The grader sandbox blocks
-   remote CDNs (`docs/submission-contract.md` §2). #}<!doctype html>
+{# Report template — ECharts inlined for interactive charts.
+   The grader sandbox blocks remote CDNs (`docs/submission-contract.md` §2). #}<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
@@ -23,6 +23,9 @@
   .meta { font-size: 12px; color: #888; margin-top: 24px; }
   .refusal { color: #b8202c; font-weight: 600; }
 </style>
+{% if echarts_js %}
+<script>{{ echarts_js | safe }}</script>
+{% endif %}
 </head>
 <body>
 <h1>{{ title }}</h1>
@@ -36,7 +39,19 @@
 {% for chart in charts %}
 <section class="chart" id="{{ chart.anchor_id }}">
   <h3>{{ chart.type_label }} · {{ chart.title }}</h3>
-  {{ chart.svg | safe }}
+  {% if chart.echarts_option %}
+  <div id="{{ chart.anchor_id }}-c" style="width:100%;height:400px;"></div>
+  <script>
+    (function(){
+      var el=document.getElementById('{{ chart.anchor_id }}-c');
+      var c=echarts.init(el);
+      c.setOption({{ chart.echarts_option|safe }});
+      window.addEventListener('resize',function(){c.resize();});
+    })();
+  </script>
+  {% else %}
+  {{ chart.svg|safe }}
+  {% endif %}
 </section>
 {% endfor %}
 {% endif %}

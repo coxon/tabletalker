@@ -25,7 +25,7 @@ const CHART_HINT: Record<ChartKind, string> = {
 
 export function TurnCard({ turn, index }: { turn: Turn; index: number }) {
   const { response, question, kind } = turn;
-  const reportSrc = `/api/reports/${response.id}`;
+  const reportSrc = `/reports/${response.id}.html`;
   const isParent = kind === "parent";
   const heading = isParent ? "首次提问" : `追问 #${index}`;
   const [openReport, setOpenReport] = useState(false);

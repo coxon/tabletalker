@@ -53,7 +53,7 @@ def test_renders_three_chart_types_for_grouped_table() -> None:
     )
 
     types = {c.type for c in rendered.charts}
-    assert types == {"柱状图", "折线图", "饼图"}, types
+    assert types == {"柱状图", "折线图", "饼图", "散点图"}, types
     for chart in rendered.charts:
         anchor_id = chart.html_anchor.lstrip("#")
         # Every chart's id has to materialise as an `id="..."` in the doc.
