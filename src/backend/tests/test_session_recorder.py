@@ -379,6 +379,46 @@ def test_list_sessions_filters_by_query_substring(
     assert none == []
 
 
+def test_list_sessions_treats_like_wildcards_as_literals(
+    recorder: SessionRecorder,
+) -> None:
+    """`%` and `_` in user input must NOT match arbitrary characters.
+
+    CR #18 round-2 (Major): bare LIKE patterns let `%` over-match. A
+    user searching for "50% off" would match every row; worse, an
+    empty `_` could be used to enumerate rows by length. We escape
+    wildcards and pass `ESCAPE '\\'` to the LIKE clause; a literal
+    `%` should ONLY match a literal `%`.
+    """
+
+    recorder.record_parent(
+        _mk_response("pct"),
+        primary_filename="x.csv",
+        extra_filenames=[],
+        original_question="50% 折扣分析",
+        sampling_rate=None,
+        sampling_note=None,
+    )
+    recorder.record_parent(
+        _mk_response("plain"),
+        primary_filename="x.csv",
+        extra_filenames=[],
+        original_question="销售趋势",
+        sampling_rate=None,
+        sampling_note=None,
+    )
+    # Searching for "50%" must only match the row with literal "%".
+    pct = recorder.list_sessions(query="50%")
+    assert {s.id for s in pct} == {"pct"}
+    # `_` should be literal — must not match anything (no row has it).
+    underscore = recorder.list_sessions(query="50_")
+    assert underscore == []
+    # And the bare wildcard `%` alone should NOT match every row —
+    # without escaping it would match all of them.
+    just_pct = recorder.list_sessions(query="%")
+    assert {s.id for s in just_pct} == {"pct"}
+
+
 def test_list_sessions_filters_by_status(recorder: SessionRecorder) -> None:
     recorder.record_parent(
         _mk_response("ok", refused=False),
@@ -524,6 +564,62 @@ def test_stats_counts_total_and_continuable(recorder: SessionRecorder) -> None:
     assert stats["total"] == 3
     assert stats["continuable"] == 2  # the 2 non-refused ones
     assert stats["this_week"] == 3  # all three were just recorded
+
+
+def test_stats_continuable_derives_from_status_not_flag(
+    recorder: SessionRecorder,
+) -> None:
+    """`continuable` counts the rows whose `status != 'refused'` —
+    independent of the redundant `is_refusal` column. CR #18 round-2:
+    keeps the badge in lockstep with the API's `is_refusal` derivation
+    (which also reads from `status`).
+
+    Plant a row with status=completed but is_refusal=1 (the impossible
+    case post-write but possible after a hand-edit / failed migration).
+    The count must include it.
+    """
+
+    recorder.record_parent(
+        _mk_response("ok"),
+        primary_filename="x.csv",
+        extra_filenames=[],
+        original_question="q",
+        sampling_rate=None,
+        sampling_note=None,
+    )
+    # Force the flag to disagree with status.
+    recorder._conn.execute(
+        "UPDATE sessions SET is_refusal = 1 WHERE id = ?", ("ok",)
+    )
+    recorder._conn.commit()
+
+    # status='completed' so it IS continuable, regardless of the flag.
+    assert recorder.stats()["continuable"] == 1
+
+
+def test_get_session_validates_status_column(
+    recorder: SessionRecorder,
+) -> None:
+    """A row whose `status` column doesn't match the closed enum must
+    surface as a sqlite error in `get_session`, not silently smuggle a
+    free-form string into the Literal-typed DTO. CR #18 round-2.
+    """
+
+    recorder.record_parent(
+        _mk_response("legacy"),
+        primary_filename="x.csv",
+        extra_filenames=[],
+        original_question="q",
+        sampling_rate=None,
+        sampling_note=None,
+    )
+    recorder._conn.execute(
+        "UPDATE sessions SET status = 'in_progress' WHERE id = ?", ("legacy",)
+    )
+    recorder._conn.commit()
+
+    with pytest.raises(sqlite3.DatabaseError, match="unexpected status"):
+        recorder.get_session("legacy")
 
 
 # ---------------------------------------------------------------------------

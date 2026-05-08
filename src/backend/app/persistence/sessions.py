@@ -508,8 +508,23 @@ class SessionRecorder:
         clauses: list[str] = []
         params: list[object] = []
         if query:
-            clauses.append("(title LIKE ? OR primary_filename LIKE ?)")
-            like = f"%{query}%"
+            # CR #18 round-2 (Major): user input is a SQL LIKE pattern;
+            # bare `%` and `_` would over-match (e.g. searching for "50%
+            # off" would match every title). Escape them, then opt the
+            # column LIKE clauses into ESCAPE '\' so the literal pattern
+            # wins. Backslash itself must be doubled first, otherwise the
+            # `\` we write before `%`/`_` would itself become an escaped
+            # backslash followed by an unescaped wildcard.
+            escaped = (
+                query.replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_")
+            )
+            clauses.append(
+                "(title LIKE ? ESCAPE '\\' "
+                "OR primary_filename LIKE ? ESCAPE '\\')"
+            )
+            like = f"%{escaped}%"
             params.extend([like, like])
         if status:
             clauses.append("status = ?")
@@ -547,6 +562,13 @@ class SessionRecorder:
                 (session_id,),
             ).fetchall()
         turns = tuple(_row_to_turn(r) for r in turn_rows)
+        # CR #18 round-2 (Major): coerce the status column the same way
+        # `_row_to_summary` does. Without this, a hand-edited DB could
+        # smuggle a free-form string into `SessionDetail.status` (the
+        # field is Literal-typed, so pyright would believe it; the
+        # Pydantic boundary in api/sessions.py would then 500). Going
+        # through `_coerce_status` raises sqlite3.DatabaseError, which
+        # the GET /v1/sessions/{id} route translates to 503.
         return SessionDetail(
             id=session_row["id"],
             title=session_row["title"],
@@ -554,7 +576,7 @@ class SessionRecorder:
             extra_filenames=tuple(json.loads(session_row["extra_filenames"])),
             created_at=session_row["created_at"],
             updated_at=session_row["updated_at"],
-            status=session_row["status"],
+            status=_coerce_status(session_row["status"]),
             is_refusal=bool(session_row["is_refusal"]),
             chart_count=session_row["chart_count"],
             finding_count=session_row["finding_count"],
@@ -615,7 +637,13 @@ class SessionRecorder:
                 (week_ago,),
             ).fetchone()[0]
             continuable = self._conn.execute(
-                "SELECT COUNT(*) FROM sessions WHERE is_refusal = 0"
+                # CR #18 round-2: status is the source of truth (the
+                # API derives is_refusal from it). Counting from the
+                # is_refusal flag column would diverge if a future
+                # writer set status='refused' but forgot the flag —
+                # exactly the divergence we eliminated in the DTO
+                # layer in round-1.
+                "SELECT COUNT(*) FROM sessions WHERE status != 'refused'"
             ).fetchone()[0]
         return {
             "total": int(total),
