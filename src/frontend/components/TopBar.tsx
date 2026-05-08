@@ -123,12 +123,21 @@ export function TopBar({ backendOnline, backendLabel }: TopBarProps) {
           <span
             className="chip nums"
             title={backendLabel}
+            aria-live="polite"
             // Animated dot — opacity-pulses when offline so a degraded
             // backend visually nags. Stays static when online; we
             // deliberately don't animate ready states (emil "motion has
             // meaning"). Status text is visible `sm+`; below that we
-            // keep a `sr-only` twin so screen readers + keyboard users
-            // aren't left with a color-only indicator. CR #19 round-1.
+            // keep a `sr-only sm:hidden` twin so screen readers +
+            // keyboard users aren't left with a color-only indicator.
+            // `aria-live="polite"` on the container announces any
+            // online↔offline change once the shell ever starts polling
+            // (a no-op today since `backendOnline` only resolves once
+            // at SSR). CR #19 round-2: the sm+ text span is NOT
+            // `aria-hidden` so screen readers on wide viewports
+            // announce it directly — the sr-only twin is already
+            // `display:none`d out of the a11y tree by `sm:hidden`, so
+            // there's no duplicate readout.
           >
             <span
               aria-hidden
@@ -141,7 +150,7 @@ export function TopBar({ backendOnline, backendLabel }: TopBarProps) {
             <span className="sr-only sm:hidden">
               {backendOnline ? "后端就绪" : "后端不可达"}
             </span>
-            <span aria-hidden className="hidden sm:inline">
+            <span className="hidden sm:inline">
               {backendOnline ? "后端就绪" : "后端不可达"}
             </span>
           </span>
