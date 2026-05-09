@@ -1,0 +1,109 @@
+# TableTalker — frontend (Next.js) deployment.
+#
+# Apply via:
+#   kubectl apply -f k8s/frontend.yaml -n <namespace>
+#   # or, on OpenShift
+#   oc apply -f k8s/frontend.yaml -n <namespace>
+#
+# Image:
+#   `docker build -t table-talker-frontend:local 源代码/frontend`
+#
+# The frontend talks to the backend at the in-cluster Service DNS
+# `http://table-talker-backend:80`. To expose this Service externally,
+# add an Ingress (kubectl) or Route (oc) per cluster convention — kept
+# out of this manifest because exposure varies by environment.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: table-talker-frontend
+  labels:
+    app: table-talker-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: table-talker-frontend
+  template:
+    metadata:
+      labels:
+        app: table-talker-frontend
+    spec:
+      containers:
+        - name: table-talker-frontend
+          image: store.asiainfo.com/ai-llm/table-talker-frontend:frontend-latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: BACKEND_URL
+              value: "http://table-talker-backend"
+            - name: NODE_ENV
+              value: "production"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: table-talker-frontend
+  labels:
+    app: table-talker-frontend
+spec:
+  type: ClusterIP
+  selector:
+    app: table-talker-frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+# OpenShift Route: exposes the frontend Service externally with TLS
+# terminated at the cluster router (edge). The router auto-assigns
+# the hostname `<route>-<namespace>.apps.<cluster-domain>` if `host`
+# is left blank. This is OpenShift-only — on vanilla Kubernetes, write
+# an Ingress instead. Skipped on `kubectl apply` against non-OpenShift
+# clusters because the `route.openshift.io/v1` API isn't available.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: table-talker-frontend
+  labels:
+    app: table-talker-frontend
+  annotations:
+    # Default HAProxy idle timeout is 30s, which kills the SSE/NDJSON
+    # stream from /v1/analyze/stream while the planner LLM is mid-call
+    # (no events flow for 12-60s during the round-trip). Bump to 10 min
+    # so the stream survives even slow reasoning models. The full
+    # request budget is 5 min on the Next.js route handler side, so
+    # 600s here is comfortably above that.
+    haproxy.router.openshift.io/timeout: 600s
+spec:
+  to:
+    kind: Service
+    name: table-talker-frontend
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None

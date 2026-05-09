@@ -1,0 +1,142 @@
+# TableTalker — backend (FastAPI) deployment.
+#
+# Apply via:
+#   kubectl apply -f k8s/backend.yaml -n <namespace>
+#   # or, on OpenShift
+#   oc apply -f k8s/backend.yaml -n <namespace>
+#
+# Image expectations:
+#   - Build locally: `docker build -t table-talker-backend:local 源代码/backend`
+#   - Or push to your registry and bump `image:` below.
+#
+# Secrets:
+#   The Secret `table-talker-llm` is intentionally NOT defined in this
+#   manifest — it carries LLM_API_KEY which must not land in git. Create
+#   it once per cluster:
+#     oc create secret generic table-talker-llm \
+#       --from-literal=LLM_API_KEY=sk-... \
+#       -n <namespace>
+#   (or `kubectl create secret generic ...`). Re-running `oc apply -f`
+#   will not touch the Secret because this manifest doesn't define it.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: table-talker-backend
+  labels:
+    app: table-talker-backend
+data:
+  LLM_BASE_URL: "https://aigw.asiainfo.com/v1"
+  LLM_MODEL: "aliyun/qwen3.6-plus"
+  LLM_TIMEOUT_S: "300"
+  APP_PUBLIC_URL: "http://localhost:8000"
+  # Trusted-proxy gating for X-Forwarded-* headers. In-cluster traffic
+  # comes from the Service IP, which we trust by default; tighten or
+  # widen as your network requires.
+  APP_TRUSTED_PROXIES: "*"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: table-talker-sessions
+  labels:
+    app: table-talker-backend
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: table-talker-backend
+  labels:
+    app: table-talker-backend
+spec:
+  replicas: 1
+  # Recreate (vs RollingUpdate) because sessions.db is a sqlite file on a
+  # ReadWriteOnce volume — overlapping pods would corrupt the WAL.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: table-talker-backend
+  template:
+    metadata:
+      labels:
+        app: table-talker-backend
+    spec:
+      containers:
+        - name: table-talker-backend
+          # Built locally with `docker buildx build --platform linux/amd64
+          # --push -t store.asiainfo.com/ai-llm/table-talker-backend:backend-<tag>
+          # -t store.asiainfo.com/ai-llm/table-talker-backend:backend-latest
+          # 源代码/backend`. Component-prefixed tags keep front/back rolls
+          # auditably separate; the `:backend-latest` floating tag is what
+          # this manifest pulls so a rollout-restart picks the newest push.
+          image: store.asiainfo.com/ai-llm/table-talker-backend:backend-latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            # uv writes its cache here on first install; the OpenShift SCC
+            # we run under denies writes to the image filesystem so we
+            # redirect cache dirs to /tmp.
+            - name: UV_CACHE_DIR
+              value: /tmp/.cache/uv
+            - name: XDG_CACHE_HOME
+              value: /tmp/.cache
+          envFrom:
+            - configMapRef:
+                name: table-talker-backend
+            - secretRef:
+                name: table-talker-llm
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          volumeMounts:
+            - name: sessions
+              mountPath: /app/data
+      volumes:
+        - name: sessions
+          persistentVolumeClaim:
+            claimName: table-talker-sessions
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: table-talker-backend
+  labels:
+    app: table-talker-backend
+spec:
+  type: ClusterIP
+  selector:
+    app: table-talker-backend
+  ports:
+    - name: http
+      # Service exposes :80 (matches the existing deployment in the
+      # ai-llm namespace so consumers don't break) and proxies to the
+      # backend's :8000 inside the pod.
+      port: 80
+      targetPort: http

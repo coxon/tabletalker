@@ -114,7 +114,7 @@ PR #4 - PR #21 期间存在的 `_TRAP_KEYWORDS` 关键词字典 +
 
 ## 测试
 
-相关测试在 `src/backend/tests/`，尤其是：
+相关测试在 `源代码/backend/tests/`，尤其是：
 
 - `test_analyze_api.py`
 - `test_followup_api.py`

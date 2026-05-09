@@ -24,8 +24,8 @@ SHELL := bash
 # Use `pnpm` if on PATH, else fall back to corepack's shim.
 PNPM ?= $(shell command -v pnpm >/dev/null 2>&1 && echo pnpm || echo corepack pnpm)
 
-BACKEND_DIR  := src/backend
-FRONTEND_DIR := src/frontend
+BACKEND_DIR  := 源代码/backend
+FRONTEND_DIR := 源代码/frontend
 
 .PHONY: help install install-backend install-frontend dev lint typecheck test check eval eval-datasets eval-run eval-render clean
 

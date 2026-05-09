@@ -43,10 +43,10 @@ if grep -Eq '^LLM_API_KEY=sk-replace-me$' .env; then
 fi
 
 echo "==> Backend: installing deps"
-( cd src/backend && uv sync )
+( cd 源代码/backend && uv sync )
 
 echo "==> Frontend: installing deps"
-( cd src/frontend && pnpm install --frozen-lockfile )
+( cd 源代码/frontend && pnpm install --frozen-lockfile )
 
 echo "==> Launching backend on :8000 and frontend on :3000"
 # Log file for the backend; tee preserves the tty stream for interactive
@@ -70,15 +70,15 @@ echo "    backend log: $TT_BACKEND_LOG"
 # from a same-host proxy, and from there the proxy-trust decision is
 # delegated to the app-level `ProxyHeadersMiddleware`, which gates
 # trust on the `APP_TRUSTED_PROXIES` env var (see
-# `src/backend/app/main.py`). Wildcarding the uvicorn allowlist here
+# `源代码/backend/app/main.py`). Wildcarding the uvicorn allowlist here
 # would let an arbitrary client (e.g. someone hitting :8000 directly)
 # spoof headers and override `report_html_url` — defeating
 # APP_TRUSTED_PROXIES entirely.
-( cd src/backend && uv run uvicorn app.main:app \
+( cd 源代码/backend && uv run uvicorn app.main:app \
     --host 0.0.0.0 --port 8000 \
     --proxy-headers 2>&1 | tee "$TT_BACKEND_LOG" ) &
 BACK_PID=$!
-( cd src/frontend && pnpm dev --port 3000 ) &
+( cd 源代码/frontend && pnpm dev --port 3000 ) &
 FRONT_PID=$!
 
 trap 'kill $BACK_PID $FRONT_PID 2>/dev/null || true' EXIT

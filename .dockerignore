@@ -1,0 +1,42 @@
+# Repo-root .dockerignore. The backend Dockerfile uses the repo root as
+# build context (so it can COPY 自测报告/ and eval/runs/ in addition to
+# 源代码/backend/app/), so without these excludes a 1+ GB context would be
+# uploaded to the daemon every build.
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+**/.ruff_cache
+**/.venv
+**/.next
+**/node_modules
+**/dist
+**/build
+**/.git
+.git
+.github
+**/.DS_Store
+**/tsconfig.tsbuildinfo
+
+# Local sqlite + working dirs that should NOT be baked.
+源代码/backend/data
+logs
+.env
+.env.*
+
+# Bulky eval inputs. The backend image only needs `eval/runs/` (~10MB)
+# for the /v1/self-test endpoints; the raw datasets and batch fixtures
+# live in this repo for the eval runner but aren't referenced by any
+# runtime code path.
+eval/datasets
+eval/datasets-official
+eval/batch-test
+eval/_cache
+eval/_artifacts
+
+# Project-level dirs the backend image doesn't need.
+docs
+knowledge-base
+架构文档
+演示视频
+运行脚本

@@ -38,12 +38,19 @@
 
 ## 试一下
 
-- **公网入口**：（待最终部署后填写，免登录）
-- **本地兜底**：
+- **公网入口**：https://table-talker-frontend-ai-llm.apps.dc2.asiainfo.com/ （免登录）
+- **启动**（任选其一）：
   ```bash
+  # ① 直接拉源码跑
   bash 运行脚本/start.sh
-  # 前端 http://localhost:3000
+
+  # ② docker-compose
+  docker compose up --build
+
+  # ③ k8s（OpenShift 同 manifest 用 oc apply）
+  kubectl apply -f k8s/ -n <namespace>
   ```
+  前端 http://localhost:3000，后端 http://localhost:8000
 - **依赖**：Python 3.11+ (uv) · Node 20+ (pnpm) · 亚信 LLM 网关账号
 - **配置**：参考 `.env.example`
 

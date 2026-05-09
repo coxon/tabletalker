@@ -10,6 +10,28 @@ make eval-datasets     # 只重建 eval/datasets/*.csv
 make eval-run          # 连接已经运行的 :8000 后端重新评测
 ```
 
+## 部分重跑（resume）
+
+整轮 cases-20 在 aigw + reasoning 下要 90+ 分钟。一轮跑完后，少数 case 可能因
+**LLM 网关瞬时 502 / 连接 0** 拿不到 200 状态，但代码本身没问题——这种用 resume
+模式只补跑失败的 case，不必整轮重来：
+
+```bash
+uv run --project 源代码/backend python eval/run.py \
+  --cases eval/cases-20.yaml \
+  --resume eval/runs/<run-id>
+```
+
+行为：
+
+- 读 `<run-id>/*.json`，**保留所有 stage 全部 200 的 case**；
+- 重跑任意 stage（main / followup / trap）非 200 的 case；
+- 写回原 run dir，更新 `summary.json`。
+
+边界：resume 只看 HTTP 状态码，**不重跑"业务判断错"的 case**（比如 trap=200 但
+拒答决策错），那需要修代码或改 prompt 而不是重试。回归后用
+`render_official_metrics.py --run <run-id>` 重新生成自测报告即可。
+
 ## 目录内容
 
 - `build_datasets.py`：生成 15 个确定性的合成 CSV 数据集。

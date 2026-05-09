@@ -410,10 +410,15 @@ DEMO 视频与最终自测报告依据这些产物组装。组委会的复现性
 
 ## 5. 复现性声明
 
+- **公网入口**：https://table-talker-frontend-ai-llm.apps.dc2.asiainfo.com/
+  （免登录，OpenShift Route + HTTPS edge termination）；
 - **代码**：Apache 2.0 协议，公开 GitHub 仓库 (URL 填于提交时)；
-- **依赖**：`uv` 锁文件 `src/backend/uv.lock` + `pnpm-lock.yaml`，版本固定；
+- **依赖**：`uv` 锁文件 `源代码/backend/uv.lock` + `pnpm-lock.yaml`，版本固定；
 - **运行**：`bash 运行脚本/start.sh` 一键启动，端口默认 `8000` (后端) +
-  `3000` (前端)；脚本会校验 `.env` 必备变量并拒绝占位 API key；
+  `3000` (前端)；脚本会校验 `.env` 必备变量并拒绝占位 API key。亦提供
+  容器化部署：`docker compose up --build` 拉起本地 compose；
+  `kubectl apply -f k8s/ -n <ns>` 或 `oc apply -f k8s/ -n <ns>` 走
+  同一套 manifest（含 PVC 持久化 sessions.db、Secret 承载 LLM 凭据）；
 - **环境变量**：`.env.example` 声明所有需要的变量（`LLM_BASE_URL`、
   `LLM_API_KEY`、`LLM_MODEL`、`APP_PUBLIC_URL`、可选 `LLM_TIMEOUT_S`、
   `TABLETALKER_UPLOAD_MAX_BYTES`、`TABLETALKER_UPLOAD_MAX_TOTAL_BYTES`），
@@ -440,7 +445,7 @@ DEMO 视频与最终自测报告依据这些产物组装。组委会的复现性
 | #6 | 会话状态、follow-up 路由、refusal 分类器、多轮 UI | ✅ |
 | #7 | 前端 UI（上传 / 输入 / 进度态 / 报告 iframe） | ✅ |
 | #8 | 15 数据集自测、性能 P50/P95、stage 埋点、自测报告刷新 | ✅ |
-| #9 | DEMO 视频、公网 URL、本文件 v1 终版 | 🚧 |
+| #9 | DEMO 视频（仍待录）、公网 URL（已上线）、本文件 v1 终版 | 🚧 |
 | #16 | 批量评测 `/v1/batch` — manifest 驱动多任务运行 + xlsx 输出 | ✅ |
 | #17 | 官方格式自测指标渲染器 + cases-official 测试套件 | ✅ |
 | #18 | 会话持久化 SQLite 索引 + `/v1/sessions` 历史分析 API | ✅ |
@@ -520,16 +525,18 @@ DEMO 视频与最终自测报告依据这些产物组装。组委会的复现性
 | `架构文档/design_doc.md` | 本文件 |
 | `自测报告/latest_evaluation_metrics.md` | 自测指标（评分模型读取） |
 | `运行脚本/start.sh` | 一键启动 |
+| `docker-compose.yml` · `源代码/{backend,frontend}/Dockerfile` | docker-compose 部署 |
+| `k8s/backend.yaml` · `k8s/frontend.yaml` | kubectl/oc 部署（生产 OpenShift 复用同款 manifest） |
 | `演示视频/` | DEMO 视频（提交前终版填入） |
 | `eval/datasets/` | 15 个自测合成数据集 |
 | `eval/cases.yaml` / `eval/cases-20.yaml` | 自测用例编排；后者为当前提交回归集 |
 | `eval/run.py` / `render_metrics.py` | 自测脚本 + 指标渲染 |
-| `src/backend/app/spreadsheet/` | 类型化计划引擎（schema / planner / executor / 15 个算子） |
-| `src/backend/app/analyze/` | handler + profiler + evidence + stages 埋点 |
-| `src/backend/app/api/` | `/v1/analyze`、`/v1/follow-up`、`/reports/{id}.html`、`/v1/sessions`、`/v1/batch` |
-| `src/backend/app/session/` | LRU + TTL 会话存储 + follow-up prompt + SQLite 持久化索引 |
-| `src/backend/app/report/` | Jinja 模板 + 内联 ECharts 图表 + 内存 store |
-| `src/frontend/app/(shell)/` | 三页路由：`/`（提问分析）、`/history`（历史分析）、`/batch`（批量评测） |
-| `src/frontend/app/api/` | Next.js 代理路由：analyze、follow-up、sessions、batch、reports |
-| `src/frontend/components/` | TopBar（三 tab 导航）、AnalyzeShell、Composer、Dropzone、TurnCard 等 |
-| `src/frontend/lib/sessions.ts` | 会话相关 TypeScript 类型定义 |
+| `源代码/backend/app/spreadsheet/` | 类型化计划引擎（schema / planner / executor / 15 个算子） |
+| `源代码/backend/app/analyze/` | handler + profiler + evidence + stages 埋点 |
+| `源代码/backend/app/api/` | `/v1/analyze`、`/v1/follow-up`、`/reports/{id}.html`、`/v1/sessions`、`/v1/batch` |
+| `源代码/backend/app/session/` | LRU + TTL 会话存储 + follow-up prompt + SQLite 持久化索引 |
+| `源代码/backend/app/report/` | Jinja 模板 + 内联 ECharts 图表 + 内存 store |
+| `源代码/frontend/app/(shell)/` | 三页路由：`/`（提问分析）、`/history`（历史分析）、`/batch`（批量评测） |
+| `源代码/frontend/app/api/` | Next.js 代理路由：analyze、follow-up、sessions、batch、reports |
+| `源代码/frontend/components/` | TopBar（三 tab 导航）、AnalyzeShell、Composer、Dropzone、TurnCard 等 |
+| `源代码/frontend/lib/sessions.ts` | 会话相关 TypeScript 类型定义 |

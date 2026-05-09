@@ -1,0 +1,260 @@
+"""Renderer + chart-selection tests.
+
+The renderer is the gatekeeper for the chart-anchor invariant: every
+`html_anchor` it returns has to point at a live `id` in the rendered HTML.
+That invariant is the single thing the auto-grader can break us on by
+following a `report_html_url`, so it's tested directly.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from app.analyze.schema import Evidence, Finding
+from app.report.render import render_report
+
+
+def _table_answer(rows: list[dict[str, Any]], columns: list[str]) -> dict[str, Any]:
+    return {"type": "table", "title": "Test", "columns": columns, "rows": rows}
+
+
+def _evidence(value: float | int | str = 100) -> Evidence:
+    return Evidence(
+        dataset="ds",
+        table="t.csv",
+        columns=["region"],
+        filters="",
+        aggregation="count(*)",
+        value=value,
+        row_count=10,
+    )
+
+
+def test_renders_non_trend_charts_for_unordered_grouped_table() -> None:
+    """A 3-row unordered group_by → bar + pie + scatter + heatmap.
+
+    Region names are nominal categories, so a line chart would imply a
+    trend that the data does not support.
+
+    Boxplot needs ≥4 distinct points (see render._select_and_build_charts);
+    the 3-row case here covers everything except box. The 4+-row case is
+    exercised by test_emits_box_when_distribution_has_spread below.
+    """
+
+    answer = _table_answer(
+        rows=[
+            {"region": "华东", "total": 300},
+            {"region": "华南", "total": 50},
+            {"region": "华北", "total": 75},
+        ],
+        columns=["region", "total"],
+    )
+    finding = Finding(title="区域销售", detail="华东最高", evidence=[_evidence(300)])
+    rendered = render_report(
+        report_id="eval_test_001",
+        title="测试报告",
+        summary="测试摘要",
+        findings=[finding],
+        recommendations=["开拓华东市场"],
+        is_refusal=False,
+        answer=answer,
+    )
+
+    types = {c.type for c in rendered.charts}
+    assert types == {"柱状图", "饼图", "散点图", "热力图"}, types
+    for chart in rendered.charts:
+        anchor_id = chart.html_anchor.lstrip("#")
+        # Every chart's id has to materialise as an `id="..."` in the doc.
+        assert f'id="{anchor_id}"' in rendered.html
+    assert "测试摘要" in rendered.html
+    assert "智能分析覆盖" in rendered.html
+    assert "统计分析" in rendered.html
+    assert "趋势分析" in rendered.html
+    assert "根因分析" in rendered.html
+    assert "不具备稳定自然顺序" in rendered.html
+    assert "横向差异" in rendered.html
+    assert "开拓华东市场" in rendered.html
+
+
+def test_emits_line_for_ordered_axis() -> None:
+    """Ordered labels such as grade support a real trend line."""
+
+    answer = _table_answer(
+        rows=[
+            {"grade": "7", "avg_score": 74.5},
+            {"grade": "8", "avg_score": 75.1},
+            {"grade": "9", "avg_score": 75.0},
+        ],
+        columns=["grade", "avg_score"],
+    )
+    rendered = render_report(
+        report_id="eval_ordered_001",
+        title="年级趋势",
+        summary="x",
+        findings=[Finding(title="x", detail="y", evidence=[_evidence(74.5)])],
+        recommendations=[],
+        is_refusal=False,
+        answer=answer,
+    )
+    types = {c.type for c in rendered.charts}
+    assert "折线图" in types
+    assert "字段 grade 可作为有序比较维度" in rendered.html
+    assert "整体呈" in rendered.html
+
+
+def test_language_column_is_not_misread_as_age_trend() -> None:
+    """`original_language` contains the substring "age", but it is nominal."""
+
+    answer = _table_answer(
+        rows=[
+            {"original_language": "te", "avg_vote": 7.5},
+            {"original_language": "id", "avg_vote": 7.4},
+            {"original_language": "ar", "avg_vote": 7.3},
+        ],
+        columns=["original_language", "avg_vote"],
+    )
+    rendered = render_report(
+        report_id="eval_language_001",
+        title="语言评分",
+        summary="x",
+        findings=[Finding(title="x", detail="y", evidence=[_evidence(7.5)])],
+        recommendations=[],
+        is_refusal=False,
+        answer=answer,
+    )
+
+    types = {c.type for c in rendered.charts}
+    assert "折线图" not in types
+    assert "字段 original_language 不具备稳定自然顺序" in rendered.html
+    assert "整体呈" not in rendered.html
+
+
+def test_emits_box_when_distribution_has_spread() -> None:
+    """Boxplot kicks in for ≥4 rows with non-zero spread — 5-number summary
+    is meaningful. Outlier-detection lane (additional scatter series) is
+    inside the chart option, not a separate chart entry."""
+
+    answer = _table_answer(
+        rows=[
+            {"region": f"R{i}", "total": v}
+            for i, v in enumerate([10, 22, 30, 18, 95])
+        ],
+        columns=["region", "total"],
+    )
+    rendered = render_report(
+        report_id="eval_box_001",
+        title="区域销售分布",
+        summary="箱线图覆盖",
+        findings=[Finding(title="x", detail="y", evidence=[_evidence(10)])],
+        recommendations=[],
+        is_refusal=False,
+        answer=answer,
+    )
+    types = {c.type for c in rendered.charts}
+    assert "箱线图" in types, types
+    box_anchor = next(
+        c.html_anchor.lstrip("#") for c in rendered.charts if c.type == "箱线图"
+    )
+    assert f'id="{box_anchor}"' in rendered.html
+
+
+def test_skips_box_when_all_values_equal() -> None:
+    """A flat distribution (zero spread) should not draw a degenerate box."""
+
+    answer = _table_answer(
+        rows=[{"region": f"R{i}", "total": 10} for i in range(5)],
+        columns=["region", "total"],
+    )
+    rendered = render_report(
+        report_id="eval_flat_001",
+        title="平坦",
+        summary="x",
+        findings=[Finding(title="x", detail="y", evidence=[_evidence(10)])],
+        recommendations=[],
+        is_refusal=False,
+        answer=answer,
+    )
+    types = {c.type for c in rendered.charts}
+    assert "箱线图" not in types
+
+
+def test_refusal_renders_chartless_html() -> None:
+    """Refusals show the canonical Chinese narrative and zero charts."""
+
+    rendered = render_report(
+        report_id="eval_refuse_001",
+        title="无法回答",
+        summary="数据集中不包含「Race」字段",
+        findings=[],
+        recommendations=[],
+        is_refusal=True,
+        answer=None,
+    )
+    assert rendered.charts == []
+    assert "数据集中不包含" in rendered.html
+    assert "智能分析覆盖" not in rendered.html
+    # Assert the actual class binding the template applies on refusal,
+    # not a loose substring (the word "refusal" could appear in copy).
+    assert 'class="summary refusal"' in rendered.html
+
+
+def test_skips_pie_when_a_value_is_negative() -> None:
+    """Pie should be omitted when any series value is negative — the chart
+    factory clamps but the *picker* shouldn't even propose one."""
+
+    answer = _table_answer(
+        rows=[
+            {"region": "华东", "delta": 12},
+            {"region": "华南", "delta": -3},
+            {"region": "华北", "delta": 4},
+        ],
+        columns=["region", "delta"],
+    )
+    rendered = render_report(
+        report_id="eval_neg_001",
+        title="差额",
+        summary="差额报告",
+        findings=[Finding(title="差额", detail="x", evidence=[_evidence(12)])],
+        recommendations=[],
+        is_refusal=False,
+        answer=answer,
+    )
+    types = {c.type for c in rendered.charts}
+    assert "饼图" not in types
+    assert "折线图" not in types
+    assert {"柱状图", "散点图", "热力图"}.issubset(types)
+
+
+def test_only_bar_when_two_rows() -> None:
+    """Two-row answer is too thin for a meaningful line — bar + pie only."""
+
+    answer = _table_answer(
+        rows=[{"k": "A", "v": 10}, {"k": "B", "v": 20}],
+        columns=["k", "v"],
+    )
+    rendered = render_report(
+        report_id="eval_two_001",
+        title="二项",
+        summary="二项报告",
+        findings=[Finding(title="x", detail="y", evidence=[_evidence(10)])],
+        recommendations=[],
+        is_refusal=False,
+        answer=answer,
+    )
+    types = {c.type for c in rendered.charts}
+    assert "柱状图" in types
+    assert "折线图" not in types  # rule: line needs ≥3 points
+    assert "饼图" in types
+
+
+def test_no_chart_when_answer_is_not_table() -> None:
+    rendered = render_report(
+        report_id="eval_scalar_001",
+        title="单值",
+        summary="单值报告",
+        findings=[Finding(title="x", detail="y", evidence=[_evidence("华东")])],
+        recommendations=[],
+        is_refusal=False,
+        answer={"type": "scalar", "value": 42},
+    )
+    assert rendered.charts == []
