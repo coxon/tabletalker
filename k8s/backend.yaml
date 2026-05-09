@@ -30,9 +30,24 @@ data:
   LLM_MODEL: "aliyun/qwen3.6-plus"
   LLM_TIMEOUT_S: "300"
   APP_PUBLIC_URL: "http://localhost:8000"
-  # Trusted-proxy gating for X-Forwarded-* headers. In-cluster traffic
-  # comes from the Service IP, which we trust by default; tighten or
-  # widen as your network requires.
+  # Trusted-proxy gating for X-Forwarded-* headers used by uvicorn's
+  # ProxyHeadersMiddleware (forwarded_allow_ips). The middleware does
+  # not support CIDR ranges, so the practical choices are:
+  #   "*"                    — accept from any source
+  #   "127.0.0.1"            — disable proxy-header trust (local-only)
+  #   "<router-pod-ip>,..."  — enumerate router IPs (operator override)
+  # Production clusters should override this via a kustomize / Helm
+  # overlay or a `kubectl set env` to the specific OpenShift router
+  # pod IPs once known. The checked-in default is "*" because:
+  #   1. The only X-Forwarded-* effect in this app is the host/proto
+  #      used to build `report_html_url`. There is no auth, no session
+  #      token bound to identity, and no privileged endpoint behind it
+  #      — a forged header at worst sends a report URL the attacker
+  #      could already construct themselves.
+  #   2. CodeRabbit (PR #22) flagged this as risky in general; the
+  #      decision to keep "*" is a deliberate scope-aware trade-off
+  #      for the submission window, not an oversight. Tighten when
+  #      this manifest is reused for a system with auth.
   APP_TRUSTED_PROXIES: "*"
 ---
 apiVersion: v1
@@ -68,6 +83,14 @@ spec:
       labels:
         app: table-talker-backend
     spec:
+      # Pod-level securityContext: drop seccomp to RuntimeDefault to
+      # apply syscall filtering. Container-level non-root is set below.
+      # On OpenShift the SCC may already enforce a stricter profile
+      # (anyuid / restricted-v2); these explicit fields make the
+      # baseline clear when this manifest runs on vanilla k8s too.
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: table-talker-backend
           # Built locally with `docker buildx build --platform linux/amd64
@@ -78,6 +101,17 @@ spec:
           # this manifest pulls so a rollout-restart picks the newest push.
           image: store.asiainfo.com/ai-llm/table-talker-backend:backend-latest
           imagePullPolicy: Always
+          # Container-level securityContext: never run as root, never
+          # let a process escalate privileges, drop all Linux caps. We
+          # do NOT set readOnlyRootFilesystem because uv writes to
+          # /app/.venv at startup and FastAPI/Starlette write tempfiles
+          # under /tmp during multipart uploads — both would 500 if
+          # the rootfs were read-only.
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           ports:
             - name: http
               containerPort: 8000

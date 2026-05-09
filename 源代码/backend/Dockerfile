@@ -36,6 +36,14 @@ COPY eval/runs ./eval/runs
 
 RUN mkdir -p /app/data && chgrp -R 0 /app && chmod -R g=u /app
 
+# Drop to a non-root UID by default. OpenShift's restricted SCC ignores
+# this and assigns a random UID anyway (the chgrp/chmod above keeps
+# things writable via the GID=0 group), but on vanilla k8s and on
+# `docker run` without --user this stops the container from running as
+# root by accident — which CodeRabbit (PR #22) flagged as the default
+# image's largest container-escape blast-radius lever.
+USER 1001
+
 EXPOSE 8000
 
 # `--proxy-headers` honours X-Forwarded-* from a TLS-terminating proxy

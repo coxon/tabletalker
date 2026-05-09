@@ -1,12 +1,13 @@
 // Streaming variant of /api/follow-up: passes the JSON body through to
 // the backend's /v1/follow-up/stream and relays the NDJSON
 // ReadableStream directly to the browser. Mirrors
-// /api/analyze/stream/route.ts; see that file for buffering caveats.
+// /api/analyze/stream/route.ts; see that file for buffering caveats and
+// for why no `AbortSignal.timeout` is set on the upstream fetch (the
+// backend owns stream-termination semantics).
 
 import { NextRequest, NextResponse } from "next/server";
 
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
-const TIMEOUT_MS = 300_000;
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,7 +29,6 @@ export async function POST(request: NextRequest): Promise<Response> {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: payload,
-      signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "upstream failed";

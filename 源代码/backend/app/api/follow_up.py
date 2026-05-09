@@ -462,6 +462,7 @@ async def follow_up_stream(body: FollowUpRequest, request: Request) -> Streaming
 
     async def runner() -> None:
         timer: StageTimer | None = None
+        turn_finalized = False
         try:
             emit({"type": "stage", "name": STAGE_ORDER[0], "status": "start"})
             try:
@@ -517,6 +518,7 @@ async def follow_up_stream(body: FollowUpRequest, request: Request) -> Streaming
                 is_refusal=analyze_response.is_refusal,
                 allocation_token=alloc_token,
             )
+            turn_finalized = True
             _record_followup_safe(
                 session_id=session.id,
                 turn_index=turn_index,
@@ -528,6 +530,18 @@ async def follow_up_stream(body: FollowUpRequest, request: Request) -> Streaming
                 "data": analyze_response.model_dump(mode="json"),
                 "stage_timings": timer.as_payload(),
             })
+        except asyncio.CancelledError:
+            # Client disconnected mid-stream → stream() calls task.cancel(),
+            # which raises CancelledError here. CancelledError extends
+            # BaseException (not Exception) since 3.8, so the broad
+            # `except Exception` below cannot reach it; without this
+            # explicit branch the per-turn allocation lock leaks and the
+            # next follow-up on this session blocks forever waiting for it.
+            if not turn_finalized:
+                SESSION_STORE.discard_turn(
+                    session.id, turn_index, allocation_token=alloc_token
+                )
+            raise
         except Exception as exc:  # pragma: no cover - defensive
             logger.exception("follow-up/stream: unhandled error")
             emit({

@@ -79,12 +79,12 @@ export default async function V2Layout({ children }: { children: ReactNode }) {
               </span>
             </div>
             
-            <a href="/self-test" target="_blank" className="flex items-center gap-1.5 text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 px-3 py-1.5 rounded-md hover:bg-indigo-100 transition-colors font-medium">
+            <a href="/self-test" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 px-3 py-1.5 rounded-md hover:bg-indigo-100 transition-colors font-medium">
               <ClipboardCheck size={14} />
               自测报告
             </a>
 
-            <a href="/docs" target="_blank" className="flex items-center gap-1.5 text-xs text-slate-600 bg-white border border-slate-200 px-3 py-1.5 rounded-md hover:bg-slate-50 transition-colors">
+            <a href="/docs" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs text-slate-600 bg-white border border-slate-200 px-3 py-1.5 rounded-md hover:bg-slate-50 transition-colors">
               <ExternalLink size={14} />
               API 文档
             </a>

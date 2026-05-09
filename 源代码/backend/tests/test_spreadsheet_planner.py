@@ -9,10 +9,10 @@ import pandas as pd
 import pytest
 
 from app.spreadsheet.planner import (
+    _PLANNER_PROMPT,
     MAX_PLAN_RETRIES,
     PlannerError,
     PlanRequest,
-    _PLANNER_PROMPT,
     make_plan,
 )
 

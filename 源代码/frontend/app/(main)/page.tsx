@@ -84,12 +84,17 @@ export default function V2AnalyzePage() {
     }
     if (accepted.length === 0) return;
     setFiles((prev) => {
-      // Dedup by (name, size) — same name + same size is almost
-      // certainly the same file the user dragged twice.
-      const seen = new Set(prev.map((f) => `${f.name}::${f.size}`));
+      // Dedup by (name, size, lastModified). (name, size) alone collides
+      // on real-world batch exports — a folder of 10 same-size shards or
+      // two `customers.csv` from different directories share both fields,
+      // and the second drop would silently disappear. lastModified is
+      // millisecond-precise so the chance of a true match across distinct
+      // files is negligible.
+      const keyOf = (f: File) => `${f.name}::${f.size}::${f.lastModified}`;
+      const seen = new Set(prev.map(keyOf));
       const merged = [...prev];
       for (const f of accepted) {
-        const key = `${f.name}::${f.size}`;
+        const key = keyOf(f);
         if (!seen.has(key)) {
           merged.push(f);
           seen.add(key);

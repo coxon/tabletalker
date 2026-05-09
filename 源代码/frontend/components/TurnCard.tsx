@@ -28,7 +28,12 @@ export function TurnCard({ turn, index }: { turn: Turn; index: number }) {
   const reportSrc = `/reports/${response.id}.html`;
   const isParent = kind === "parent";
   const heading = isParent ? "首次提问" : `追问 #${index}`;
-  const [openReport, setOpenReport] = useState(true);
+  // Default to collapsed: expanding mounts a heavy report iframe that
+  // pulls a ~1 MB HTML doc (with embedded ECharts JSON) and runs its
+  // own scripts. Multi-turn sessions defaulting to expanded would
+  // mount N iframes simultaneously on first paint and freeze the
+  // page. Users open the report explicitly on demand.
+  const [openReport, setOpenReport] = useState(false);
 
   return (
     <motion.article

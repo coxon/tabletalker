@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api import selftest as selftest_module
@@ -23,8 +24,12 @@ def test_report_html_renders_real_file() -> None:
     at least one `<table>` (the auto-grader file always has scoring tables).
     If this regresses, judges open `/self-test` to a blank panel."""
     if not _REAL_MD.exists():
-        # CI without the file present — skip silently.
-        return
+        # File is mandatory per CLAUDE.md project rule #2 — its absence
+        # is a real regression (someone deleted the submission artefact),
+        # not a "skip silently because dev box". Use pytest.skip so the
+        # CI report shows a SKIPPED with a loud reason instead of a
+        # silent green pass that masks the missing file.
+        pytest.skip(f"missing required artefact: {_REAL_MD}")
 
     with TestClient(app) as client:
         resp = client.get("/v1/self-test/report.html")
@@ -39,7 +44,7 @@ def test_report_html_renders_real_file() -> None:
 
 def test_report_md_serves_raw_with_attachment_header() -> None:
     if not _REAL_MD.exists():
-        return
+        pytest.skip(f"missing required artefact: {_REAL_MD}")
 
     with TestClient(app) as client:
         resp = client.get("/v1/self-test/report.md")

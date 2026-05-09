@@ -47,6 +47,14 @@ COPY --from=builder /app/next.config.mjs ./next.config.mjs
 
 EXPOSE 3000
 
+# Drop to non-root by default. OpenShift's SCC overrides this to a
+# random UID; on vanilla k8s / plain docker this stops the container
+# from running as root. node:20-alpine ships with a `node` user at
+# UID 1000 that we reuse rather than carving a new one. The runner
+# image only reads `.next/` + node_modules and writes to /tmp (HOME=/tmp
+# above), all of which `node` can already access.
+USER node
+
 # `BACKEND_URL` is read at request time by next.config.mjs's rewrites
 # (defaults to http://localhost:8000). Override at runtime via
 # `-e BACKEND_URL=http://backend:8000` in compose / env in k8s.

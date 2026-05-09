@@ -29,10 +29,26 @@ spec:
       labels:
         app: table-talker-frontend
     spec:
+      # Pod-level securityContext mirrors backend.yaml — see commentary
+      # there for the SCC interplay rationale.
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: table-talker-frontend
           image: store.asiainfo.com/ai-llm/table-talker-frontend:frontend-latest
           imagePullPolicy: Always
+          # Container-level securityContext: never run as root, never
+          # let a process escalate privileges, drop all Linux caps. We
+          # do NOT set readOnlyRootFilesystem because Next.js writes
+          # `.next/cache/*` at runtime; mounting that as an emptyDir
+          # would work but adds ConfigMap-mount complexity that isn't
+          # justified for a public-facing read-mostly UI.
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           ports:
             - name: http
               containerPort: 3000

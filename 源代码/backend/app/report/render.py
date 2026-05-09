@@ -210,7 +210,10 @@ def _trend_detail(
     rows: list[dict[str, Any]], columns: list[str], has_ordered_chart: bool
 ) -> str:
     if not rows or len(columns) < 2:
-        return "当前结果表为单值或非表格结果，不包含可比较的有序维度；无法形成趋势判断，只能基于现有证据给出静态结论。"
+        return (
+            "当前结果表为单值或非表格结果，不包含可比较的有序维度；"
+            "无法形成趋势判断，只能基于现有证据给出静态结论。"
+        )
     label_col = columns[0]
     labels = [str(row.get(label_col, "")) for row in rows]
     if not has_ordered_chart and not _is_ordered_axis(label_col, labels):
@@ -220,7 +223,10 @@ def _trend_detail(
         )
     _, value_col = _pick_axis_columns(rows, columns)
     if value_col is None:
-        return f"字段 {label_col} 具备顺序线索，但结果表缺少可连续比较的数值指标，暂不输出趋势强弱判断。"
+        return (
+            f"字段 {label_col} 具备顺序线索，但结果表缺少可连续比较的数值指标，"
+            "暂不输出趋势强弱判断。"
+        )
     values = [_to_float(row.get(value_col)) for row in rows]
     if len(values) < 2:
         return "当前有序维度只有一个观测点，无法判断上升或下降趋势。"

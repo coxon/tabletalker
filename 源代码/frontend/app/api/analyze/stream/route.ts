@@ -7,12 +7,14 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
-// 5-minute ceiling: the streaming endpoint has the same end-to-end
-// budget as `/api/analyze` (longer to be safe — slow LLM nights),
-// but timeout enforcement here would chop the stream mid-event;
-// instead we trust the backend's own timeouts to surface an `error`
-// event when something hangs and let the SPA decide what to do.
-const TIMEOUT_MS = 300_000;
+// No `signal: AbortSignal.timeout(...)` here on purpose. AbortSignal.timeout
+// keeps counting after the response headers arrive; once the deadline hits
+// it tears the body stream down even if the backend is still emitting
+// `stage` events on schedule. The streamed protocol already has the
+// backend emit a terminal `result` or `error` event, plus its own
+// per-stage timeouts, so a proxy-side hard timeout can only damage the
+// happy path without adding any safety. CodeRabbit (PR #22) flagged the
+// same issue on the sibling follow-up/stream route.
 
 export const runtime = "nodejs";
 // Disable Next's response buffering — without this, route handlers in
@@ -36,7 +38,6 @@ export async function POST(request: NextRequest): Promise<Response> {
     upstream = await fetch(`${BACKEND_URL}/v1/analyze/stream`, {
       method: "POST",
       body: formData,
-      signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "upstream failed";
