@@ -1,39 +1,39 @@
-# Submission contract
+# 提交契约
 
-The official problem statement (赛题4 §5.1) defines the JSON shape every
-analysis response must take. This document records that shape verbatim,
-field by field, and ties each field to the module that owns its
-content.
+官方赛题 4 §5.1 规定了每次分析响应的 JSON 结构。本文件记录当前后端必须返回的字段和语义。
+契约一旦实现，不允许静默改字段名或类型。
 
-The contract is **frozen** — once a downstream PR implements it, no
-silent changes. Any field rename or type change goes through a roadmap
-entry and a PR that updates this file first.
-
-## 1. Endpoint
+## 1. 评测相关接口
 
 ```text
-POST /v1/analyze                 # standard analysis (single turn)
-POST /v1/follow-up               # follow-up; same shape + parent_id
-GET  /reports/{id}.html          # the rendered report referenced by report_html_url
+POST /v1/analyze                 主分析，multipart/form-data
+POST /v1/follow-up               追问，application/json
+GET  /reports/{id}.html          HTML 报告
+GET  /api/reports/{id}/download  前端下载代理，返回 attachment HTML
 ```
 
-These three routes are the **only** paths the organizer's grader calls.
-Internal aliases (e.g. `/spreadsheet/*`) are not part of the contract.
+辅助接口：
 
-Request bodies are `multipart/form-data` for analyze (file + question),
-`application/json` for follow-up (`{ parent_id, question }`).
+```text
+POST   /v1/batch                 批量评测
+GET    /v1/sessions              历史列表
+GET    /v1/sessions/{id}          历史详情
+DELETE /v1/sessions/{id}          删除历史
+GET    /health                   健康检查
+GET    /version                  版本信息
+```
 
-## 2. Response shape
+## 2. 响应结构
 
 ```json
 {
   "id": "eval_analysis_a3f12b8c",
   "report_html_url": "https://your-domain.com/reports/eval_analysis_a3f12b8c.html",
-  "summary": "针对顾客购物行为数据,从年龄、季节、促销三个维度交叉分析,识别出 55+ 客群为高价值但订阅率偏低的客群...",
+  "summary": "针对顾客购物行为数据，从年龄、季节、促销三个维度交叉分析，识别出 55+ 客群为高价值但订阅率偏低的客群...",
   "findings": [
     {
       "title": "55 岁以上顾客客单价显著高于年轻客群",
-      "detail": "55+ 客群平均客单价 ¥59.31,较 18-34 岁组高 15.8%",
+      "detail": "55+ 客群平均客单价 59.31，较 18-34 岁组高 15.8%。",
       "evidence": [
         {
           "dataset": "顾客购物行为分析",
@@ -48,154 +48,80 @@ Request bodies are `multipart/form-data` for analyze (file + question),
     }
   ],
   "charts": [
-    { "type": "柱状图", "title": "各年龄段平均客单价", "html_anchor": "#chart-age-bar" },
-    { "type": "热力图", "title": "类别 × 季节销售热度", "html_anchor": "#chart-cat-season-heatmap" },
-    { "type": "箱线图", "title": "促销 vs 非促销客单价分布", "html_anchor": "#chart-discount-box" }
+    {"type": "柱状图", "title": "各年龄段平均客单价", "html_anchor": "#chart-age-bar"}
   ],
   "recommendations": [
-    "针对 55+ 客群推出长期会员订阅福利,提升订阅转化",
-    "Winter 季节加大男装类目库存与广告投放"
+    "针对 55+ 客群推出长期会员订阅福利，提升订阅转化。"
   ],
   "is_refusal": false,
   "confidence": 0.88
 }
 ```
 
-## 3. Field-by-field
+## 3. 字段说明
 
-### `id` (string, required)
-
-A stable identifier we generate per request. Format:
-`eval_analysis_<8-hex>` for first-turn requests,
-`eval_follow_<parent-suffix>_q<n>` for follow-ups. Used as the basename
-for the rendered HTML file.
-
-Owner: `app/analyze/handler.py` (PR #4).
-
-### `report_html_url` (string, required)
-
-Absolute URL to the rendered report. Built from `APP_PUBLIC_URL` env
-(see `.env.example`) plus `/reports/{id}.html`. The report must:
-
-- Render correctly **with no live network calls** (Plotly bundled
-  inline, no remote CDNs the eval network might block).
-- Stay accessible for the duration of the eval window — see the
-  submission gate in `roadmap.md`.
-
-Owner: `app/report/render.py` (PR #5).
-
-### `summary` (string, 300–500 chars Chinese)
-
-Plain-text narrative. Opens with the **single most important finding**
-(per organizer §7.2 雷 5 — no boilerplate openings). Followed by 2–3
-sentences of supporting context. No markdown.
-
-Owner: planner's `finish` step (PR #4).
-
-### `findings` (array, ≥1 entry, **every entry has ≥1 evidence**)
-
-Each entry:
-
-| Field | Type | Notes |
+| 字段 | 类型 | 要求 |
 |---|---|---|
-| `title` | string | One-line headline. ≤30 Chinese chars preferred. |
-| `detail` | string | One paragraph, includes the actual numbers. |
-| `evidence` | array of evidence | At least one. More is better (organizer §7.3). |
+| `id` | string | 首轮为 `eval_analysis_*`，追问为 `eval_follow_*` |
+| `report_html_url` | string | 可访问的 HTML 报告 URL |
+| `summary` | string | 中文摘要，开门见山，不写模板套话 |
+| `findings` | array | 关键发现；非拒答时至少 1 条 |
+| `recommendations` | array | 基于关键发现的业务建议 |
+| `is_refusal` | boolean | 是否拒答 |
+| `confidence` | number | 0-1，可选观测字段 |
 
-#### Evidence sub-schema
+### `finding` 关键发现
 
-| Field | Type | Notes |
+| 字段 | 类型 | 要求 |
 |---|---|---|
-| `dataset` | string | Must equal the directory name under `data/public_datasets/` exactly. |
-| `table` | string | The CSV/XLSX filename. Required when the dataset has multiple tables. |
-| `columns` | array of string | **Verbatim** from the file header — including spaces, parentheses, mixed languages. |
-| `filters` | string | SQL-WHERE-style or pandas-style. Must be reproducible: `Age >= 55` not `年龄≥55`. |
-| `aggregation` | string | Function call form: `mean(Purchase Amount (USD))`, `count(*)`, `sum(amount)`. |
-| `value` | number / string | The aggregation's actual result, captured from the sandbox run. **Never inferred.** |
-| `row_count` | int (optional) | Post-filter row count. Required for any sampled analysis. |
+| `title` | string | 简短标题 |
+| `detail` | string | 包含实际数字和解释 |
+| `evidence` | array | 每条关键发现至少 1 条证据 |
 
-Auto-grader replays `(dataset, table, filters, aggregation)` and
-compares `value` and `row_count`. Mismatch → that finding scored 0.
+### `evidence` 证据
 
-Owner: `app/evidence/build.py` (PR #4).
-
-### `charts` (array, ≥3 distinct types when not refusing)
-
-Each entry:
-
-| Field | Type | Notes |
+| 字段 | 类型 | 要求 |
 |---|---|---|
-| `type` | string | Chinese chart-type label (`柱状图`/`折线图`/`饼图`/`散点图`/`热力图`/`箱线图`). |
-| `title` | string | Plain text, no markdown. |
-| `html_anchor` | string | Fragment id present in the rendered HTML, e.g. `#chart-age-bar`. |
+| `dataset` | string | 数据集名，尽量与官方目录名一致 |
+| `table` | string | 文件名，多表数据集必须明确 |
+| `columns` | array | 原始字段名，保留空格、括号、大小写 |
+| `filters` | string | 可复现过滤条件 |
+| `aggregation` | string | 聚合表达式，如 `mean(...)` / `count(*)` |
+| `value` | number/string | typed-op 执行得到的真实结果，不能推断 |
+| `row_count` | int/null | 参与计算的样本数 |
+| `sampling_rate` | number/null | 如采样，必须披露 |
 
-The HTML report must contain a corresponding `<div id="chart-age-bar">`
-(without the `#`). The renderer asserts this match before responding.
+## 4. 图表
 
-Owner: `app/report/charts.py` (PR #5).
+`charts[].html_anchor` 必须能在 HTML 中找到对应 `<div id="...">`。
+当前实现内联 ECharts 运行时，不依赖 CDN。
 
-### `recommendations` (array of string)
+官方枚举包含：柱状图、折线图、饼图、散点图、热力图、箱线图。
+当前回归观测到：柱状图、折线图、饼图、散点图。
 
-Action-oriented business suggestions, each grounded in one of the
-findings above. Plain Chinese sentences. Empty when refusing.
+## 5. 追问
 
-Owner: planner's `finish` step (PR #4).
-
-### `is_refusal` (boolean, required)
-
-`true` only when the system declined to analyze. When `true`:
-
-- `findings` may be empty.
-- `charts` may be empty.
-- `summary` carries the canonical refusal narrative — see
-  [`refusal-policy.md`](refusal-policy.md) for the exact phrasing.
-- `recommendations` is empty.
-
-False refusals (refusing a question we could have answered) are scored
-as wrong answers — the grading rule is asymmetric: refusing a real
-question is scored **worse than answering it badly**.
-
-### `confidence` (number, optional, 0–1)
-
-Optional signal of self-assessed confidence. Organizer §7.3 says this
-field is not graded — we emit it for our own observability but never
-key on it.
-
-## 4. Follow-up specifics
-
-A follow-up request carries `parent_id`. Its response uses the **same
-shape**, but:
-
-- `id` is the new follow-up id (`eval_follow_*`), not the parent's.
-- `findings` should reference the parent's named cohorts where the
-  user used pronouns ("they" → "the 55+ cohort identified in the
-  parent analysis"). Cohort propagation is the session store's job.
-- A new HTML report is rendered for the follow-up; the parent's report
-  remains accessible at its own URL.
-
-## 5. Refusal payload
+追问请求体：
 
 ```json
 {
-  "id": "eval_trap_b9c45d12",
-  "report_html_url": "https://your-domain.com/reports/eval_trap_b9c45d12.html",
-  "summary": "数据集中不包含「Race」字段,无法基于现有字段对种族维度进行流失率分析。建议补充该字段后重试。",
-  "findings": [],
-  "charts": [],
-  "recommendations": [],
-  "is_refusal": true,
-  "confidence": 1.0
+  "parent_id": "eval_analysis_xxx",
+  "question": "刚才提到的高价值客群中，他们最偏好的类别是什么？"
 }
 ```
 
-The HTML report still exists for refused requests — it shows the same
-narrative as `summary` plus a small panel describing what data **was**
-available, so the user can adjust their question.
+追问响应结构与主分析相同，但 `id` 是新的 follow-up id。
+父轮报告 URL 继续可访问，追问会生成自己的报告 URL。
 
-## 6. Versioning
+## 6. 拒答
 
-This contract is **v1**, tied to organizer 赛题4 README.md v1.0
-(2026-04-28).
+拒答时：
 
-If the organizer publishes a v1.1 of the spec we update this file in
-the same PR that changes the implementation, never separately.
+- `is_refusal=true`
+- `summary` 使用 `docs/refusal-policy.md` 中的固定中文话术
+- `findings` / `charts` 可为空
+- 仍生成 HTML 报告，避免 `report_html_url` 断链
+
+## 7. 版本
+
+当前契约对应官方 README v1.0（2026-04-28）。

@@ -87,6 +87,9 @@ class CaseResult:
     # disclosure) so the auto-grader can verify the sample-rate claim
     # in the run summary matches what the case used. None = full dataset.
     sampling_rate: float | None = None
+    extra_file_count: int = 0
+    primary_file: str = ""
+    extra_files: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -179,16 +182,26 @@ def _is_jsonable_finite(value: object) -> bool:
     return True
 
 
+def _mime_type(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix in {".xlsx", ".xls"}:
+        return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    return "text/csv"
+
+
 async def _post_analyze(
     client: httpx.AsyncClient,
     dataset_path: Path,
     question: str,
     *,
     sampling_rate: float | None = None,
+    extra_paths: tuple[Path, ...] = (),
 ) -> TurnResult:
     started = time.monotonic()
     try:
-        with dataset_path.open("rb") as f:
+        handles = [dataset_path.open("rb")]
+        handles.extend(path.open("rb") for path in extra_paths)
+        try:
             # `sampling_rate` (CR #17 round-15 Major): when the manifest
             # declares the dataset was sub-sampled, forward it as a form
             # field so the backend stamps Evidence rows with the same
@@ -200,11 +213,21 @@ async def _post_analyze(
             data: dict[str, str] = {"question": question}
             if sampling_rate is not None:
                 data["sampling_rate"] = str(sampling_rate)
+            files: list[tuple[str, tuple[str, object, str]]] = [
+                ("file", (dataset_path.name, handles[0], _mime_type(dataset_path)))
+            ]
+            files.extend(
+                ("extra_files", (path.name, handle, _mime_type(path)))
+                for path, handle in zip(extra_paths, handles[1:], strict=True)
+            )
             response = await client.post(
                 "/v1/analyze",
-                files={"file": (dataset_path.name, f, "text/csv")},
+                files=files,
                 data=data,
             )
+        finally:
+            for handle in handles:
+                handle.close()
     except httpx.HTTPError as exc:
         return TurnResult(
             label="analyze",
@@ -225,9 +248,13 @@ async def _post_analyze(
         error=None
         if response.status_code == 200
         else (response.text[:500] if body is None else None),
-        stage_timings=_parse_stage_timings(response)
-        if response.status_code == 200
-        else None,
+        # Stage timings are forwarded on error responses too (the backend
+        # routes set them via HTTPException(headers=...) so the eval
+        # renderer can pinpoint which stage died on a 422/502 without
+        # reading the backend log. `_parse_stage_timings` returns None
+        # for responses that don't carry the header, so this stays
+        # backwards-compatible with older deploys.
+        stage_timings=_parse_stage_timings(response),
     )
 
 
@@ -259,9 +286,8 @@ async def _post_followup(
         error=None
         if response.status_code == 200
         else (response.text[:500] if body is None else None),
-        stage_timings=_parse_stage_timings(response)
-        if response.status_code == 200
-        else None,
+        # See `_post_analyze` for the stage_timings rationale on errors.
+        stage_timings=_parse_stage_timings(response),
     )
 
 
@@ -278,8 +304,33 @@ async def _post_followup(
 _CASE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
-def _resolve_dataset_path(case_id: str, data_dir: Path) -> Path:
-    """Return `data_dir/<case_id>.csv`, refusing path-traversal IDs.
+def _resolve_primary_path(filename: str, data_dir: Path) -> Path:
+    """Return `data_dir/<filename>` for a manifest-declared primary file."""
+    if not isinstance(filename, str) or Path(filename).name != filename:
+        raise ValueError(
+            f"primary_file must be a basename with no path separators, got: {filename!r}"
+        )
+    if filename.startswith("."):
+        raise ValueError(f"primary_file must not be hidden/dot-prefixed: {filename!r}")
+    if Path(filename).suffix.lower() not in {".csv", ".xlsx", ".xls"}:
+        raise ValueError(
+            f"primary_file must end with .csv, .xlsx, or .xls, got: {filename!r}"
+        )
+    candidate = (data_dir / filename).resolve()
+    base = data_dir.resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError as exc:
+        raise ValueError(
+            f"resolved primary_file path {candidate} escapes data_dir {base}"
+        ) from exc
+    return candidate
+
+
+def _resolve_dataset_path(
+    case_id: str, data_dir: Path, primary_file: str | None = None
+) -> Path:
+    """Return the case's primary dataset path, refusing path traversal.
 
     Two layers of defence:
     1. Whitelist regex on the raw ID — rejects "/", "\\", "..", and any
@@ -292,6 +343,8 @@ def _resolve_dataset_path(case_id: str, data_dir: Path) -> Path:
             f"case id must match {_CASE_ID_PATTERN.pattern!r} "
             f"(no path separators, no '..'), got: {case_id!r}"
         )
+    if primary_file is not None:
+        return _resolve_primary_path(primary_file, data_dir)
     candidate = (data_dir / f"{case_id}.csv").resolve()
     base = data_dir.resolve()
     try:
@@ -303,13 +356,44 @@ def _resolve_dataset_path(case_id: str, data_dir: Path) -> Path:
     return candidate
 
 
+def _resolve_extra_path(filename: str, data_dir: Path) -> Path:
+    """Return `data_dir/<filename>` for auxiliary tables.
+
+    Extra files are named explicitly in the case manifest because a dataset
+    such as TMDB has a primary table plus a secondary credits table. Keep the
+    same path-safety stance as case ids: basenames only, no separators.
+    """
+    if not isinstance(filename, str) or Path(filename).name != filename:
+        raise ValueError(
+            f"extra file must be a basename with no path separators, got: {filename!r}"
+        )
+    if filename.startswith("."):
+        raise ValueError(f"extra file must not be hidden/dot-prefixed: {filename!r}")
+    candidate = (data_dir / filename).resolve()
+    base = data_dir.resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError as exc:
+        raise ValueError(
+            f"resolved extra path {candidate} escapes data_dir {base}"
+        ) from exc
+    return candidate
+
+
 async def run_case(
     client: httpx.AsyncClient, case: dict, *, data_dir: Path
 ) -> CaseResult:
     case_id = case["id"]
-    dataset_path = _resolve_dataset_path(case_id, data_dir)
+    dataset_path = _resolve_dataset_path(case_id, data_dir, case.get("primary_file"))
     if not dataset_path.exists():
         raise FileNotFoundError(f"dataset missing: {dataset_path}")
+    extra_paths = tuple(
+        _resolve_extra_path(name, data_dir)
+        for name in case.get("extra_files", ())
+    )
+    for extra_path in extra_paths:
+        if not extra_path.exists():
+            raise FileNotFoundError(f"extra dataset missing: {extra_path}")
 
     # Resolve once so main + trap forward the same sampling disclosure
     # to the backend; without this the trap turn would be evaluated
@@ -318,7 +402,11 @@ async def run_case(
 
     print(f"  · {case_id} · main", flush=True)
     main = await _post_analyze(
-        client, dataset_path, case["question"], sampling_rate=sampling_rate
+        client,
+        dataset_path,
+        case["question"],
+        sampling_rate=sampling_rate,
+        extra_paths=extra_paths,
     )
 
     followup: TurnResult | None = None
@@ -346,6 +434,7 @@ async def run_case(
             dataset_path,
             case["trap"]["question"],
             sampling_rate=sampling_rate,
+            extra_paths=extra_paths,
         )
 
     return CaseResult(
@@ -355,6 +444,9 @@ async def run_case(
         trap=trap,
         trap_expected_refusal=expected_refusal,
         sampling_rate=sampling_rate,
+        extra_file_count=len(extra_paths),
+        primary_file=dataset_path.name,
+        extra_files=[path.name for path in extra_paths],
     )
 
 
@@ -539,6 +631,17 @@ def compute_metrics(results: Iterable[CaseResult]) -> dict:
         "datasets_total": main_total,
         "main_success_count": len(main_oks),
         "main_success_rate": plan_success_rate,
+        "multi_file_capable": any(
+            r.main.ok and r.extra_file_count > 0 for r in results
+        ),
+        "excel_capable": any(
+            r.main.ok
+            and any(
+                name.lower().endswith((".xlsx", ".xls"))
+                for name in [r.primary_file, *r.extra_files]
+            )
+            for r in results
+        ),
         "p50_latency_s": p50,
         "p95_latency_s": p95,
         "evidence_completeness": evidence_completeness,
@@ -795,6 +898,19 @@ def _load_and_validate_cases(cases_file: Path) -> list[dict]:
                     f"--cases[{cid!r}].trap.question must be a string, "
                     f"got: {type(trap['question']).__name__}"
                 )
+        if "extra_files" in case:
+            extra_files = case["extra_files"]
+            if not isinstance(extra_files, list) or not all(
+                isinstance(item, str) for item in extra_files
+            ):
+                raise ValueError(
+                    f"--cases[{cid!r}].extra_files must be a list[str], "
+                    f"got: {type(extra_files).__name__}"
+                )
+            for item in extra_files:
+                _resolve_extra_path(item, Path("."))
+        if "primary_file" in case:
+            _resolve_primary_path(case["primary_file"], Path("."))
         # Round-12 (CodeRabbit #17): optional `sampling_rate` must be a
         # plain finite float in (0, 1]. The renderer surfaces it in §6
         # so a string like "0.25" would render literally; a value > 1
@@ -1010,6 +1126,13 @@ def _dict_to_case_result(data: dict) -> CaseResult:
         trap=_turn(data.get("trap")),
         trap_expected_refusal=data.get("trap_expected_refusal"),
         sampling_rate=data.get("sampling_rate"),
+        extra_file_count=int(data.get("extra_file_count") or 0),
+        primary_file=str(data.get("primary_file") or ""),
+        extra_files=[
+            str(item)
+            for item in data.get("extra_files", [])
+            if isinstance(item, str)
+        ],
     )
 
 

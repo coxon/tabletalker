@@ -11,6 +11,7 @@
 
 import { forwardRef, useCallback, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import Link from "next/link";
 import { toast } from "sonner";
 
 import type {
@@ -208,6 +209,17 @@ function Hero() {
         上传 CSV 或 Excel，TableTalker 会调用规划器对每一条结论生成可复现的证据，
         并把图表、要点、追问入口收进同一份报告。
       </p>
+      <div className="flex items-center gap-3 pt-1">
+        <Link href="/batch" className="btn">
+          批量评测
+        </Link>
+        <Link
+          href="/history"
+          className="text-[13px] font-medium text-[--color-fg-muted] hover:text-[--color-fg]"
+        >
+          历史分析 →
+        </Link>
+      </div>
     </section>
   );
 }

@@ -13,8 +13,8 @@ Boundary of responsibility:
 - `evidence.py` — turns each plan run into an `Evidence` row with
   reproducible (dataset, table, columns, filters, aggregation, value)
   fields the auto-grader can replay.
-- `handler.py` — the orchestrator. Single-shot for now; PR #4 follow-ups
-  add a ReAct loop and refusal classification on top.
+- `handler.py` — the orchestrator. Runs refusal pre-check, typed planning,
+  execution, evidence extraction, finalize, reporting, and session capture.
 
 The internal `/spreadsheet/*` engine (PR #3.5) does all the heavy
 lifting — this package wraps it in the contract shape and adds the

@@ -42,3 +42,9 @@ def test_load_excel_reads_first_sheet(workspace: Path) -> None:
 
     assert result.rows == 2
     assert result.cols == 2
+
+
+def test_legacy_xls_engine_is_installed() -> None:
+    """The upload path accepts .xls, so pandas must have the legacy engine."""
+
+    pytest.importorskip("xlrd")

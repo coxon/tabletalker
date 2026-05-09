@@ -9,7 +9,7 @@
 // globals.css.
 
 import { motion } from "framer-motion";
-import { Frown, ExternalLink, ChevronDown } from "lucide-react";
+import { Frown, ExternalLink, ChevronDown, Download } from "lucide-react";
 import { useState } from "react";
 
 import type { Turn, Finding, ChartKind } from "../lib/contract";
@@ -25,7 +25,7 @@ const CHART_HINT: Record<ChartKind, string> = {
 
 export function TurnCard({ turn, index }: { turn: Turn; index: number }) {
   const { response, question, kind } = turn;
-  const reportSrc = `/api/reports/${response.id}`;
+  const reportSrc = `/reports/${response.id}.html`;
   const isParent = kind === "parent";
   const heading = isParent ? "首次提问" : `追问 #${index}`;
   const [openReport, setOpenReport] = useState(false);
@@ -109,6 +109,13 @@ export function TurnCard({ turn, index }: { turn: Turn; index: number }) {
               onClick={(event) => event.stopPropagation()}
             >
               <ExternalLink size={11} /> 新标签打开
+            </a>
+            <a
+              href={`/api/reports/${response.id}/download`}
+              className="ml-1 inline-flex items-center gap-1 text-[12px] text-[--color-fg-faint] hover:text-[--color-fg-muted]"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <Download size={11} /> 下载 HTML
             </a>
           </button>
           {openReport ? (

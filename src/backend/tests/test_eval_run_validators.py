@@ -50,6 +50,7 @@ def test_load_validate_accepts_well_formed_cases(tmp_path: Path) -> None:
         {
             "id": "02_demo",
             "question": "Q2?",
+            "primary_file": "02_demo.xlsx",
             "followup": "Tell me more.",
             "trap": {"expected_refusal": True, "question": "by race?"},
         },
@@ -205,6 +206,29 @@ def test_resolve_dataset_path_happy() -> None:
         assert out == (data_dir / "01_demo.csv").resolve()
 
 
+def test_resolve_dataset_path_honors_primary_file() -> None:
+    with tempfile.TemporaryDirectory() as d:
+        data_dir = Path(d)
+        out = _resolve_dataset_path("01_demo", data_dir, "01_demo.xlsx")
+        assert out == (data_dir / "01_demo.xlsx").resolve()
+
+
+def test_load_validate_rejects_primary_file_path_traversal(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="primary_file must be a basename"):
+        _load_and_validate_cases(
+            _write_yaml(
+                tmp_path,
+                [
+                    {
+                        "id": "01_demo",
+                        "question": "Q?",
+                        "primary_file": "../01_demo.xlsx",
+                    }
+                ],
+            )
+        )
+
+
 @pytest.mark.parametrize(
     "bad_id",
     [
@@ -347,6 +371,31 @@ def test_compute_metrics_emits_refusal_correct_accuracy_and_alias() -> None:
     assert metrics["refusal_correct_accuracy"] == 1.0
 
 
+def test_compute_metrics_uses_recorded_upload_filenames_for_capabilities() -> None:
+    from eval.run import CaseResult, TurnResult  # type: ignore[import-not-found]
+
+    main = TurnResult(label="main", status_code=200, latency_s=0.1, body={})
+    metrics = compute_metrics(
+        [
+            CaseResult(
+                case_id="excel_smoke",
+                main=main,
+                primary_file="excel_smoke.xlsx",
+            ),
+            CaseResult(
+                case_id="multi_file",
+                main=main,
+                primary_file="movies.csv",
+                extra_file_count=1,
+                extra_files=["credits.csv"],
+            ),
+        ]
+    )
+
+    assert metrics["excel_capable"] is True
+    assert metrics["multi_file_capable"] is True
+
+
 # ---------------------------------------------------------------------------
 # _post_analyze: sampling_rate must be forwarded to /v1/analyze
 # (CR #17 round-15 Major)
@@ -428,4 +477,3 @@ async def test_post_analyze_omits_sampling_rate_when_none(tmp_path: Path) -> Non
         f"unsampled cases must not send a sampling_rate key; "
         f"got {client.last_data!r}"
     )
-

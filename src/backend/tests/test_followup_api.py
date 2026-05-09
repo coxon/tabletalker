@@ -212,7 +212,15 @@ def test_follow_up_of_refused_parent_echoes_refusal(
 ) -> None:
     """A refused parent locks the session — the follow-up never fires the LLM."""
 
-    stub = _SequencedStubClient([])  # no LLM responses expected
+    # PR #22: keyword classifier removed — provide a refuse-op plan so
+    # the parent analyze refuses via the LLM-driven path. Follow-up uses
+    # carry-through (no LLM call), so one stub response suffices.
+    refuse_plan = (
+        '{"ops":[{"kind":"refuse","out":"_r","category":1,'
+        '"narrative":"数据集中不包含「Race」字段，无法基于现有字段对该维度进行分析。"}],'
+        '"answer":"_r"}'
+    )
+    stub = _SequencedStubClient([refuse_plan])
     monkeypatch.setattr(analyze_module, "HttpChatClient", lambda config: stub)
     monkeypatch.setattr(follow_up_module, "HttpChatClient", lambda config: stub)
 
@@ -239,8 +247,9 @@ def test_follow_up_of_refused_parent_echoes_refusal(
     assert body["findings"] == []
     assert body["charts"] == []
     assert body["recommendations"] == []
-    # No LLM calls for either turn.
-    assert stub.calls == 0
+    # Parent burned 1 LLM call (planner emitted refuse op); follow-up
+    # carry-through path makes zero LLM calls of its own.
+    assert stub.calls == 1
     # Refusal HTML still resolves under the follow-up id.
     r = client.get(f"/reports/{body['id']}.html")
     assert r.status_code == 200

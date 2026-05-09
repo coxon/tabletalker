@@ -1,32 +1,51 @@
-# eval/
+# eval 评测目录
 
-End-to-end evaluation harness for TableTalker.
+本目录保存 TableTalker 的端到端评测脚本、用例和运行产物。
 
-```sh
-make eval              # build datasets, run all 15 cases, write metrics
-make eval-datasets     # rebuild eval/datasets/*.csv only
-make eval-run          # rerun against an already-running backend on :8000
+## 常用命令
+
+```bash
+make eval              # 生成合成数据，运行 cases.yaml，写入指标
+make eval-datasets     # 只重建 eval/datasets/*.csv
+make eval-run          # 连接已经运行的 :8000 后端重新评测
 ```
 
-## Layout
+## 目录内容
 
-- `build_datasets.py` — deterministic generator for 15 synthetic CSVs covering
-  the shapes the organizer's auto-grader exercises (e-commerce, HR, finance,
-  healthcare, education, transport, environmental, sports, public-services,
-  IoT). Synthetic so the eval network doesn't need to reach external sources;
-  seeded so a re-run reproduces the same numbers.
-- `cases.yaml` — for each dataset: `question`, optional `followup`, optional
-  `trap` (with `expected_refusal: true|false`). Hand-written to exercise the
-  refusal classifier honestly.
-- `run.py` — POSTs each case at `http://localhost:8000`, writes a per-run
-  JSON dump to `runs/<timestamp>/`, then computes the aggregate metrics that
-  back-fill `自测报告/latest_evaluation_metrics.md`.
-- `datasets/` — generated CSVs (gitignored — `make eval-datasets` rebuilds).
-- `runs/` — per-run artifacts (gitignored).
+- `build_datasets.py`：生成 15 个确定性的合成 CSV 数据集。
+- `cases.yaml`：15 个合成用例，每个用例可包含主问题、追问、trap。
+- `cases-20.yaml`：当前提交回归集，15 个合成用例 + 5 个官方公开数据集。
+  其中 TMDB 用 `extra_files` 触发多文件上传，`15_world_gdp` 用
+  `primary_file: 15_world_gdp.xlsx` 触发 Excel 冒烟路径。
+- `run.py`：向后端发送请求，写入 `runs/<timestamp>/`，并计算聚合指标。
+- `render_official_metrics.py`：把 run summary 渲染成官方 9 节自测报告。
+- `datasets/`：生成的合成 CSV；`15_world_gdp.xlsx` 是为 Excel 冒烟保留的
+  同源副本。
+- `datasets-official/`：官方公开数据集的标准化文件名副本或样本。
+- `runs/`：每轮评测产物。
 
-## Honesty rule
+## 最新提交回归
 
-Every number in `latest_evaluation_metrics.md` must come from a real
-`make eval` run on this branch. If a metric can't be measured (e.g. subjective
-report quality without a human judge), it stays `未实现` until a real source
-exists. See `docs/refusal-policy.md` §"why we don't fake metrics".
+最新自测报告来自：
+
+```bash
+uv run python eval/run.py \
+  --backend http://127.0.0.1:8000 \
+  --cases eval/cases-20.yaml \
+  --data-dir /private/tmp/tabletalker-eval20-official-copy-data \
+  --out eval/runs/eval20-official-20260508-223200
+
+uv run python eval/render_official_metrics.py \
+  --run eval/runs/eval20-official-20260508-223200 \
+  --commit dcbfb2a \
+  --out 自测报告/latest_evaluation_metrics.md
+```
+
+该数据目录包含 15 个合成数据集和 5 个官方公开数据集。TMDB 使用 movies
+主文件和 credits 辅助文件；`15_world_gdp` 在下一轮会使用 Excel 副本；
+电信客户流失使用完整 100k 行官方 CSV。
+
+## 诚实原则
+
+`自测报告/latest_evaluation_metrics.md` 中的数字必须来自真实 run。代码支持但
+没有在本轮触发的能力，应在报告中写明“未触发”，不要手工改成“是”。

@@ -1,14 +1,13 @@
-"""SVG chart factory unit tests.
+"""ECharts chart factory unit tests.
 
-Each builder needs to produce *parseable* SVG that an HTML renderer can
-embed directly. We don't validate against the SVG spec — the eval network
-won't either — but we do assert the structural pieces the report template
-relies on (root `<svg>`, the requested role, value labels in the markup).
+Each builder needs to produce a valid ECharts option JSON that the report
+template can embed. For empty data, a fallback SVG is used. We validate
+structural pieces: kind, type_label, anchor_id, and option content.
 """
 
 from __future__ import annotations
 
-import re
+import json
 
 import pytest
 
@@ -20,9 +19,6 @@ from app.report.charts import (
 
 
 def test_supported_chart_types_matches_label_table() -> None:
-    """`supported_chart_types` is the source of truth — keep it in lockstep
-    with `CHART_LABELS` so we never claim a kind we can't render."""
-
     assert set(supported_chart_types()) == set(CHART_LABELS)
 
 
@@ -37,30 +33,26 @@ def test_bar_chart_includes_values_and_labels() -> None:
     assert image.kind == "bar"
     assert image.type_label == "柱状图"
     assert image.anchor_id == "chart-sales-bar"
-    assert image.svg.startswith("<svg")
-    assert image.svg.endswith("</svg>")
-    # Labels and (formatted) values both make it into the rendered markup.
-    for label in ("华东", "华南", "华北"):
-        assert label in image.svg
-    assert "300" in image.svg
+    assert image.echarts_option
+    opt = json.loads(image.echarts_option)
+    assert opt["series"][0]["type"] == "bar"
+    assert opt["xAxis"]["data"] == ["华东", "华南", "华北"]
+    assert opt["series"][0]["data"] == [300.0, 50.0, 75.0]
 
 
-def test_line_chart_falls_back_to_bar_for_single_point() -> None:
-    """A single-point line is degenerate — the factory should still emit
-    something readable rather than a flat svg."""
-
+def test_line_chart_produces_line_series() -> None:
     image = build_chart(
         "line",
-        title="One Day",
-        anchor_id="chart-one",
-        labels=["Mon"],
-        values=[42.0],
+        title="Trend",
+        anchor_id="chart-trend-line",
+        labels=["Mon", "Tue", "Wed"],
+        values=[10.0, 20.0, 15.0],
     )
-    # Bar fallback uses `<rect>`; line normally uses `<polyline>`.
-    assert "<rect" in image.svg
+    opt = json.loads(image.echarts_option)
+    assert opt["series"][0]["type"] == "line"
 
 
-def test_pie_chart_renders_legend_percentages() -> None:
+def test_pie_chart_renders_data_with_names() -> None:
     image = build_chart(
         "pie",
         title="Share",
@@ -68,15 +60,15 @@ def test_pie_chart_renders_legend_percentages() -> None:
         labels=["A", "B", "C"],
         values=[1.0, 1.0, 2.0],
     )
-    # Legend lines like `A (25.0%)` — match the format we emit.
-    assert re.search(r"A \(25\.0%\)", image.svg)
-    assert re.search(r"C \(50\.0%\)", image.svg)
+    opt = json.loads(image.echarts_option)
+    assert opt["series"][0]["type"] == "pie"
+    data = opt["series"][0]["data"]
+    names = [d["name"] for d in data]
+    assert "A" in names
+    assert "C" in names
 
 
 def test_pie_clamps_negative_values() -> None:
-    """Negative slices can't be drawn; the factory must clamp without
-    raising so a malformed answer doesn't abort the report."""
-
     image = build_chart(
         "pie",
         title="Mixed",
@@ -84,9 +76,24 @@ def test_pie_clamps_negative_values() -> None:
         labels=["pos", "neg"],
         values=[5.0, -3.0],
     )
-    assert image.svg.startswith("<svg")
-    # Negative entry contributes 0 to the total → 100% goes to "pos".
-    assert "pos (100.0%)" in image.svg
+    opt = json.loads(image.echarts_option)
+    data = opt["series"][0]["data"]
+    for d in data:
+        assert d["value"] >= 0
+
+
+def test_scatter_chart() -> None:
+    image = build_chart(
+        "scatter",
+        title="Distribution",
+        anchor_id="chart-dist-scatter",
+        labels=["A", "B", "C"],
+        values=[10.0, 20.0, 30.0],
+    )
+    assert image.kind == "scatter"
+    assert image.type_label == "散点图"
+    opt = json.loads(image.echarts_option)
+    assert opt["series"][0]["type"] == "scatter"
 
 
 def test_empty_chart_for_no_data() -> None:
@@ -98,6 +105,7 @@ def test_empty_chart_for_no_data() -> None:
         values=[],
     )
     assert "无可视化数据" in image.svg
+    assert image.echarts_option == ""
 
 
 def test_length_mismatch_raises() -> None:
@@ -111,11 +119,7 @@ def test_length_mismatch_raises() -> None:
         )
 
 
-def test_bar_chart_handles_negative_values_with_baseline() -> None:
-    """Bars below the zero-line must still render with a positive height
-    attribute — the previous `value/max` formula produced negative heights
-    that SVG silently dropped."""
-
+def test_bar_chart_handles_negative_values() -> None:
     image = build_chart(
         "bar",
         title="Delta",
@@ -123,17 +127,18 @@ def test_bar_chart_handles_negative_values_with_baseline() -> None:
         labels=["A", "B", "C"],
         values=[10.0, -5.0, 20.0],
     )
-    rect_heights = [
-        float(h) for h in re.findall(r'<rect[^>]*height="([\d.]+)"', image.svg)
-    ]
-    # First rect is the full-canvas background; the rest are data bars,
-    # one per value. They must all be strictly positive — the bug was
-    # that negative values produced height=0 (or a negative attribute
-    # the renderer silently zeroed) and the bar disappeared.
-    canvas_h, *data_bar_h = rect_heights
-    assert canvas_h == 360.0  # _H from charts.py — full canvas
-    assert len(data_bar_h) == 3
-    for h in data_bar_h:
-        assert h > 0, f"data bar height must be > 0 for visibility, got {h}"
-    # Labels for the negative bar appear as `-5` in the formatted output.
-    assert "-5" in image.svg
+    opt = json.loads(image.echarts_option)
+    assert opt["series"][0]["data"] == [10.0, -5.0, 20.0]
+
+
+def test_all_chart_types_have_tooltip() -> None:
+    for kind in supported_chart_types():
+        image = build_chart(
+            kind,
+            title=f"Test {kind}",
+            anchor_id=f"chart-test-{kind}",
+            labels=["X", "Y", "Z"],
+            values=[1.0, 2.0, 3.0],
+        )
+        opt = json.loads(image.echarts_option)
+        assert "tooltip" in opt

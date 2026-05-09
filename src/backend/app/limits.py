@@ -13,9 +13,29 @@ otherwise keep them module-local.
 
 from __future__ import annotations
 
+import os
+
+
+def _bytes_from_env(name: str, default: int) -> int:
+    """Read a positive byte limit from env, falling back on bad input."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        parsed = int(raw)
+    except ValueError:
+        return default
+    return parsed if parsed > 0 else default
+
+
 # Maximum upload size accepted by `/v1/analyze` and `/spreadsheet/analyze`.
 # Mirrored by `app.analyze.profiler` so off-line callers also enforce it.
-UPLOAD_MAX_BYTES: int = 20 * 1024 * 1024  # 20 MiB
+# Defaults are intentionally above the public official data files; hidden
+# evaluation can raise them without a code change.
+UPLOAD_MAX_BYTES: int = _bytes_from_env(
+    "TABLETALKER_UPLOAD_MAX_BYTES",
+    256 * 1024 * 1024,
+)
 
 # Aggregate cap for one `/v1/analyze` request (primary + extra_files
 # combined). Without this, a caller could attach an unbounded number of
@@ -23,7 +43,10 @@ UPLOAD_MAX_BYTES: int = 20 * 1024 * 1024  # 20 MiB
 # until the session TTL evicts the workspace. 100 MiB lets a typical
 # multi-table join (e.g. 1 fact table + 4 dimension tables ≈ 80 MiB)
 # through while keeping the per-session disk footprint bounded.
-UPLOAD_MAX_TOTAL_BYTES: int = 100 * 1024 * 1024  # 100 MiB
+UPLOAD_MAX_TOTAL_BYTES: int = _bytes_from_env(
+    "TABLETALKER_UPLOAD_MAX_TOTAL_BYTES",
+    512 * 1024 * 1024,
+)
 
 # Hard ceiling on the *total* number of files in one upload (primary +
 # all auxiliaries combined). Independent of the byte cap so a flood of
@@ -37,4 +60,3 @@ UPLOAD_MAX_TOTAL_BYTES: int = 100 * 1024 * 1024  # 100 MiB
 # allow 8 auxiliaries + 1 primary = 9 total). The single live caller is
 # `app.api.analyze`; verify any new enforcement site does the same.
 UPLOAD_MAX_FILES: int = 8
-

@@ -1,43 +1,37 @@
-"""Inline-SVG chart factory.
+"""ECharts-based interactive chart factory.
 
-Why hand-rolled SVG rather than matplotlib / Plotly:
+Generates JSON option objects for ECharts 5.x. The JS runtime is inlined
+into the HTML report (no CDN dependency) so the grader sandbox can render
+charts without network access.
 
-  - The grader sandbox blocks remote CDNs (`docs/submission-contract.md`
-    §2: "no live network calls"). A static SVG embedded in the HTML
-    sidesteps both the CDN question and the ~30 MiB matplotlib install.
-  - Charts here are diagrammatic, not publication-grade. We only need
-    "the auto-grader can see a `<svg>` under the right anchor."
-  - Pure-Python SVG keeps the renderer deterministic — useful when a
-    test asserts on the report HTML string.
-
-Three types ship in PR #5: bar / line / pie. The contract enumerates six
-(柱状图 / 折线图 / 饼图 / 散点图 / 热力图 / 箱线图); `supported_chart_types`
-is the source of truth for what we can actually emit today, so callers
-don't claim an anchor we won't render.
+Six chart types: bar / line / pie / scatter / heatmap / box. Each option
+includes tooltip, toolbox (save-as-image), and dataZoom (bar/line/scatter)
+for interactive exploration. The contract requires ≥3 distinct chart types
+per non-refusal response (`docs/submission-contract.md` §`charts`).
 """
 
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass
 from typing import Literal
 from xml.sax.saxutils import escape as _xml_escape
 
-# Chinese labels match the contract's `Chart.type` enum exactly. The
-# renderer maps an internal kind ("bar") to its label ("柱状图") via this
-# table — keeping the mapping local stops `handler.py` from having to
-# know our internal kinds.
-ChartKind = Literal["bar", "line", "pie"]
+ChartKind = Literal["bar", "line", "pie", "scatter", "heatmap", "box"]
 
 CHART_LABELS: dict[ChartKind, str] = {
     "bar": "柱状图",
     "line": "折线图",
     "pie": "饼图",
+    "scatter": "散点图",
+    "heatmap": "热力图",
+    "box": "箱线图",
 }
 
 
 def supported_chart_types() -> list[ChartKind]:
-    """Kinds `build_chart` will accept. Used for static introspection."""
+    """Kinds `build_chart` will accept."""
     return list(CHART_LABELS)
 
 
@@ -46,85 +40,17 @@ class ChartImage:
     """One rendered chart, ready to embed in the report.
 
     `anchor_id` is the bare id without `#`; the renderer prepends `#`
-    when populating `Chart.html_anchor`. Keeping it separate avoids the
-    common bug of double-`#` in anchors.
+    when populating `Chart.html_anchor`.
     """
 
     kind: ChartKind
     title: str
     anchor_id: str
-    svg: str  # raw `<svg>...</svg>` markup, ready for {% autoescape off %}
-    type_label: str  # the Chinese contract label
+    svg: str  # fallback for empty/refusal charts
+    echarts_option: str  # JSON string for ECharts init
+    type_label: str
 
 
-def build_chart(
-    kind: ChartKind,
-    *,
-    title: str,
-    anchor_id: str,
-    labels: list[str],
-    values: list[float],
-) -> ChartImage:
-    """Render one chart of the requested kind.
-
-    `labels` / `values` are parallel arrays — one per category for bar
-    and pie, one per x-tick for line. The factory tolerates short input
-    (single-bar charts are legal) but raises on length mismatch since
-    that's almost always a caller bug.
-
-    Non-finite numbers (NaN / ±Inf) are coerced to `0.0` before any
-    geometry math runs — pandas' `.mean()` and friends emit NaN on
-    all-null groups, and an SVG `width="nan"` would silently produce a
-    blank chart in every browser.
-    """
-
-    if len(labels) != len(values):
-        raise ValueError(
-            f"labels/values length mismatch: {len(labels)} vs {len(values)}"
-        )
-    safe_values = _sanitise_values(values)
-    if not labels:
-        # An empty chart still gets a valid SVG, just with a placeholder.
-        # Refusal reports rely on this — they render with zero data.
-        svg = _empty_svg(title)
-    elif kind == "bar":
-        svg = _bar_svg(labels, safe_values)
-    elif kind == "line":
-        svg = _line_svg(labels, safe_values)
-    elif kind == "pie":
-        svg = _pie_svg(labels, safe_values)
-    else:  # pragma: no cover — Literal exhausts the type checker's view
-        raise ValueError(f"unknown chart kind {kind!r}")
-
-    return ChartImage(
-        kind=kind,
-        title=title,
-        anchor_id=anchor_id,
-        svg=svg,
-        type_label=CHART_LABELS[kind],
-    )
-
-
-def _sanitise_values(values: list[float]) -> list[float]:
-    """Coerce NaN / ±Inf to 0.0 so SVG math never sees a non-finite input."""
-
-    return [v if math.isfinite(v) else 0.0 for v in values]
-
-
-# ---------------------------------------------------------------------------
-# SVG geometry — small, deterministic, no external deps
-# ---------------------------------------------------------------------------
-
-# A single canvas size for every chart keeps the report's layout stable
-# (the template doesn't have to special-case widths). 640x360 is large
-# enough to legibly fit ~10 categories.
-_W = 640
-_H = 360
-_PADDING = 40
-
-# Categorical palette — picked for legibility on a white background and
-# colour-blind friendliness. Cycles when there are more series than
-# colours; matches no specific theme so brand changes don't ripple here.
 _PALETTE = [
     "#3366cc",
     "#dc3912",
@@ -136,10 +62,95 @@ _PALETTE = [
     "#66aa00",
 ]
 
+_W = 640
+_H = 360
+
+
+def build_chart(
+    kind: ChartKind,
+    *,
+    title: str,
+    anchor_id: str,
+    labels: list[str],
+    values: list[float],
+) -> ChartImage:
+    """Render one chart of the requested kind."""
+
+    if len(labels) != len(values):
+        raise ValueError(
+            f"labels/values length mismatch: {len(labels)} vs {len(values)}"
+        )
+    safe_values = _sanitise_values(values)
+
+    if not labels:
+        return ChartImage(
+            kind=kind,
+            title=title,
+            anchor_id=anchor_id,
+            svg=_empty_svg(title),
+            echarts_option="",
+            type_label=CHART_LABELS[kind],
+        )
+
+    if kind == "bar":
+        option = _bar_option(title, labels, safe_values)
+    elif kind == "line":
+        option = _line_option(title, labels, safe_values)
+    elif kind == "pie":
+        option = _pie_option(title, labels, safe_values)
+    elif kind == "scatter":
+        option = _scatter_option(title, labels, safe_values)
+    elif kind == "heatmap":
+        option = _heatmap_option(title, labels, safe_values)
+    elif kind == "box":
+        option = _box_option(title, labels, safe_values)
+    else:
+        raise ValueError(f"unknown chart kind {kind!r}")
+
+    return ChartImage(
+        kind=kind,
+        title=title,
+        anchor_id=anchor_id,
+        svg="",
+        echarts_option=_html_safe_json(option),
+        type_label=CHART_LABELS[kind],
+    )
+
+
+def _html_safe_json(option: dict) -> str:
+    """JSON-encode an ECharts option for safe embedding in an HTML page.
+
+    User-uploaded data flows into chart titles, axis labels, tooltip
+    formatters, etc. A literal `</script>` (or `</style>`, `<!--`) inside
+    any of those strings would, in a normal `json.dumps` output, slip
+    through the renderer's `<script>` block and let the browser execute
+    injected markup (CodeRabbit found this on PR #21). Two layers of
+    defence:
+
+      1. The template now embeds chart data in `<script type="application/json">`
+         and `JSON.parse`s it at runtime — non-executing context.
+      2. We additionally escape `<`, `>`, `&` to their `\\uXXXX` forms
+         here so even a `</script>` literal in the data can't terminate
+         the surrounding script tag in older browsers / non-strict HTML
+         parsers.
+
+    Both layers in combination match OWASP "Output encoding for HTML
+    contexts that contain JSON" guidance.
+    """
+
+    raw = json.dumps(option, ensure_ascii=False)
+    return (
+        raw.replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
+
+
+def _sanitise_values(values: list[float]) -> list[float]:
+    return [v if math.isfinite(v) else 0.0 for v in values]
+
 
 def _empty_svg(title: str) -> str:
-    """Placeholder SVG for refusals / no-data answers."""
-
     safe_title = _xml_escape(title)
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {_W} {_H}" '
@@ -151,183 +162,312 @@ def _empty_svg(title: str) -> str:
     )
 
 
-def _bar_svg(labels: list[str], values: list[float]) -> str:
-    """Vertical bar chart. Numeric labels go above each bar.
+def _base_option(title: str) -> dict:
+    return {
+        "color": _PALETTE,
+        "title": {
+            "text": title,
+            "left": "center",
+            "textStyle": {"fontSize": 14, "fontWeight": "normal"},
+        },
+        "tooltip": {"trigger": "axis"},
+        "toolbox": {
+            "feature": {
+                "saveAsImage": {"title": "保存图片"},
+            },
+            "right": 16,
+            "top": 4,
+        },
+        "grid": {
+            "left": "8%",
+            "right": "8%",
+            "bottom": "18%",
+            "containLabel": True,
+        },
+    }
 
-    Handles negative values by drawing a baseline at the zero-line and
-    growing bars downward. The previous implementation used `value/max_v`
-    which produced negative `height=` attributes (SVG silently renders
-    those as no bar at all) when the answer table contained deltas.
-    """
 
-    plot_w = _W - 2 * _PADDING
-    plot_h = _H - 2 * _PADDING
-    n = len(labels)
-    band = plot_w / n
-    bar_w = band * 0.6
-
-    # The drawing window spans from min(0, min_v) up to max(0, max_v) so
-    # the zero-line is always visible — that's where the baseline sits
-    # and what readers expect to anchor a comparison to.
-    if not values:
-        v_min, v_max = 0.0, 1.0
-    else:
-        v_min = min(0.0, min(values))
-        v_max = max(0.0, max(values))
-    span = v_max - v_min or 1.0
-    # Pixel position of the zero-line. Bars grow up from here for
-    # positive values and down from here for negatives.
-    zero_y = _PADDING + plot_h - ((0.0 - v_min) / span) * plot_h
-
-    parts = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {_W} {_H}" '
-        'role="img">',
-        f'<rect width="{_W}" height="{_H}" fill="white"/>',
+def _bar_option(title: str, labels: list[str], values: list[float]) -> dict:
+    opt = _base_option(title)
+    opt["tooltip"] = {
+        "trigger": "axis",
+        "axisPointer": {"type": "shadow"},
+    }
+    opt["xAxis"] = {
+        "type": "category",
+        "data": labels,
+        "axisLabel": {"rotate": 30 if len(labels) > 5 else 0, "fontSize": 11},
+    }
+    opt["yAxis"] = {"type": "value"}
+    opt["series"] = [
+        {
+            "type": "bar",
+            "data": values,
+            "label": {"show": True, "position": "top", "fontSize": 11},
+            "itemStyle": {"borderRadius": [3, 3, 0, 0]},
+        }
     ]
-    # Zero-line — the visual baseline every bar refers to.
-    parts.append(
-        f'<line x1="{_PADDING}" y1="{zero_y:.1f}" '
-        f'x2="{_W - _PADDING}" y2="{zero_y:.1f}" stroke="#bbb"/>'
-    )
-    for i, (label, value) in enumerate(zip(labels, values, strict=True)):
-        bar_h = abs(value / span) * plot_h
-        x = _PADDING + i * band + (band - bar_w) / 2
-        # Positive bars grow up from the zero-line; negative bars grow
-        # down. SVG y-axis goes downward so "up" means subtracting from
-        # `zero_y`.
-        y = zero_y - bar_h if value >= 0 else zero_y
-        colour = _PALETTE[i % len(_PALETTE)]
-        parts.append(
-            f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_w:.1f}" '
-            f'height="{bar_h:.1f}" fill="{colour}"/>'
-        )
-        # Numeric label sits just outside the bar — above for positives,
-        # below for negatives, so the digits never overlap the rect.
-        label_y = y - 4 if value >= 0 else y + bar_h + 12
-        parts.append(
-            f'<text x="{x + bar_w / 2:.1f}" y="{label_y:.1f}" text-anchor="middle" '
-            f'font-family="sans-serif" font-size="11" fill="#333">'
-            f"{_format_value(value)}</text>"
-        )
-        parts.append(
-            f'<text x="{x + bar_w / 2:.1f}" y="{_PADDING + plot_h + 14:.1f}" '
-            f'text-anchor="middle" font-family="sans-serif" font-size="11" '
-            f'fill="#333">{_xml_escape(str(label))}</text>'
-        )
-    parts.append("</svg>")
-    return "".join(parts)
-
-
-def _line_svg(labels: list[str], values: list[float]) -> str:
-    """Single-series line chart with point markers."""
-
-    plot_w = _W - 2 * _PADDING
-    plot_h = _H - 2 * _PADDING
-    n = len(labels)
-    if n == 1:
-        # A single data point is a degenerate "line" — fall back to a bar
-        # rendering so the report still shows the value.
-        return _bar_svg(labels, values)
-    step = plot_w / (n - 1)
-    max_v = max(values)
-    min_v = min(values)
-    span = (max_v - min_v) or 1.0  # flat series → still produce a midline
-
-    points = []
-    for i, value in enumerate(values):
-        x = _PADDING + i * step
-        y = _PADDING + plot_h - ((value - min_v) / span) * plot_h
-        points.append((x, y))
-
-    path = " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
-    parts = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {_W} {_H}" '
-        'role="img">',
-        f'<rect width="{_W}" height="{_H}" fill="white"/>',
-        f'<polyline fill="none" stroke="{_PALETTE[0]}" stroke-width="2" '
-        f'points="{path}"/>',
+    opt["dataZoom"] = [
+        {"type": "inside", "xAxisIndex": 0},
+        {"type": "slider", "xAxisIndex": 0, "bottom": 4, "height": 18},
     ]
-    for i, ((x, y), value) in enumerate(zip(points, values, strict=True)):
-        parts.append(
-            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3" fill="{_PALETTE[0]}"/>'
-        )
-        parts.append(
-            f'<text x="{x:.1f}" y="{_PADDING + plot_h + 14:.1f}" '
-            f'text-anchor="middle" font-family="sans-serif" font-size="11" '
-            f'fill="#333">{_xml_escape(str(labels[i]))}</text>'
-        )
-        parts.append(
-            f'<text x="{x:.1f}" y="{y - 6:.1f}" text-anchor="middle" '
-            f'font-family="sans-serif" font-size="10" fill="#666">'
-            f"{_format_value(value)}</text>"
-        )
-    parts.append("</svg>")
-    return "".join(parts)
+    return opt
 
 
-def _pie_svg(labels: list[str], values: list[float]) -> str:
-    """Pie with right-side legend.
+def _line_option(title: str, labels: list[str], values: list[float]) -> dict:
+    opt = _base_option(title)
+    opt["xAxis"] = {
+        "type": "category",
+        "data": labels,
+        "axisLabel": {"rotate": 30 if len(labels) > 5 else 0, "fontSize": 11},
+    }
+    opt["yAxis"] = {"type": "value"}
+    opt["series"] = [
+        {
+            "type": "line",
+            "data": values,
+            "smooth": True,
+            "symbol": "circle",
+            "symbolSize": 6,
+            "label": {"show": True, "position": "top", "fontSize": 10},
+            "areaStyle": {"opacity": 0.15},
+        }
+    ]
+    opt["dataZoom"] = [
+        {"type": "inside", "xAxisIndex": 0},
+        {"type": "slider", "xAxisIndex": 0, "bottom": 4, "height": 18},
+    ]
+    return opt
 
-    Negative values are clamped to 0 — pies can't represent them, and
-    aggregations like `count(*)` never produce them anyway.
-    """
 
-    cx, cy = _W // 3, _H // 2
-    radius = min(_H, _W // 2) // 2 - 20
+def _pie_option(title: str, labels: list[str], values: list[float]) -> dict:
     sanitised = [max(0.0, v) for v in values]
-    total = sum(sanitised) or 1.0
-
-    parts = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {_W} {_H}" '
-        'role="img">',
-        f'<rect width="{_W}" height="{_H}" fill="white"/>',
+    data = [
+        {"name": label, "value": val}
+        for label, val in zip(labels, sanitised, strict=True)
     ]
-    angle = -math.pi / 2  # start at 12 o'clock so the largest slice reads first
-    for i, (_label, value) in enumerate(zip(labels, sanitised, strict=True)):
-        if value == 0:
-            continue
-        sweep = (value / total) * 2 * math.pi
-        x1 = cx + radius * math.cos(angle)
-        y1 = cy + radius * math.sin(angle)
-        x2 = cx + radius * math.cos(angle + sweep)
-        y2 = cy + radius * math.sin(angle + sweep)
-        large_arc = 1 if sweep > math.pi else 0
-        path = (
-            f"M {cx} {cy} L {x1:.2f} {y1:.2f} "
-            f"A {radius} {radius} 0 {large_arc} 1 {x2:.2f} {y2:.2f} Z"
-        )
-        colour = _PALETTE[i % len(_PALETTE)]
-        parts.append(f'<path d="{path}" fill="{colour}"/>')
-        angle += sweep
+    opt = _base_option(title)
+    opt["tooltip"] = {
+        "trigger": "item",
+        "formatter": "{b}: {c} ({d}%)",
+    }
+    opt["legend"] = {
+        "orient": "vertical",
+        "right": "5%",
+        "top": "middle",
+        "textStyle": {"fontSize": 12},
+    }
+    opt["series"] = [
+        {
+            "type": "pie",
+            "radius": ["35%", "65%"],
+            "center": ["40%", "55%"],
+            "data": data,
+            "label": {
+                "show": True,
+                "formatter": "{b}\n{d}%",
+                "fontSize": 11,
+            },
+            "emphasis": {
+                "itemStyle": {
+                    "shadowBlur": 10,
+                    "shadowOffsetX": 0,
+                    "shadowColor": "rgba(0,0,0,0.2)",
+                }
+            },
+        }
+    ]
+    del opt["grid"]
+    return opt
 
-    legend_x = 2 * _W // 3
-    for i, (label, value) in enumerate(zip(labels, sanitised, strict=True)):
-        ly = _PADDING + i * 20
-        colour = _PALETTE[i % len(_PALETTE)]
-        parts.append(
-            f'<rect x="{legend_x}" y="{ly}" width="14" height="14" fill="{colour}"/>'
-        )
-        pct = (value / total) * 100 if total else 0.0
-        parts.append(
-            f'<text x="{legend_x + 20}" y="{ly + 12}" font-family="sans-serif" '
-            f'font-size="12" fill="#333">{_xml_escape(str(label))} '
-            f"({pct:.1f}%)</text>"
-        )
-    parts.append("</svg>")
-    return "".join(parts)
+
+def _scatter_option(title: str, labels: list[str], values: list[float]) -> dict:
+    opt = _base_option(title)
+    opt["tooltip"] = {
+        "trigger": "item",
+        "formatter": "{b}: {c}",
+    }
+    opt["xAxis"] = {
+        "type": "category",
+        "data": labels,
+        "axisLabel": {"rotate": 30 if len(labels) > 5 else 0, "fontSize": 11},
+    }
+    opt["yAxis"] = {"type": "value"}
+    opt["series"] = [
+        {
+            "type": "scatter",
+            "data": values,
+            "symbolSize": 10,
+            "label": {"show": False},
+        }
+    ]
+    opt["dataZoom"] = [
+        {"type": "inside", "xAxisIndex": 0},
+        {"type": "slider", "xAxisIndex": 0, "bottom": 4, "height": 18},
+    ]
+    return opt
+
+
+def _heatmap_option(title: str, labels: list[str], values: list[float]) -> dict:
+    """Single-row heatmap (1 by N) over the labels.
+
+    The renderer's chart picker currently feeds (labels, values) pairs from
+    the executor's answer table. A real 2D heatmap would need a pivoted
+    matrix (e.g. category by season counts), which isn't always derivable
+    from a single answer; rather than block heatmap on that case, we render
+    a degenerate 1xN strip — values shown as a colour gradient indexed by
+    label. It still gives the contract its sixth chart kind and produces a
+    visually meaningful "intensity by category" view.
+    """
+
+    opt = _base_option(title)
+    opt["tooltip"] = {
+        "trigger": "item",
+        "position": "top",
+        "formatter": "{b}: {c}",
+    }
+    # ECharts heatmap data is `[x_idx, y_idx, value]` triples.
+    data = [[i, 0, v] for i, v in enumerate(values)]
+    finite = [v for v in values if math.isfinite(v)]
+    vmin = min(finite) if finite else 0.0
+    vmax = max(finite) if finite else 1.0
+    opt["xAxis"] = {
+        "type": "category",
+        "data": labels,
+        "splitArea": {"show": True},
+        "axisLabel": {"rotate": 30 if len(labels) > 5 else 0, "fontSize": 11},
+    }
+    opt["yAxis"] = {
+        "type": "category",
+        "data": [title],
+        "splitArea": {"show": True},
+        "axisLabel": {"show": False},
+    }
+    opt["visualMap"] = {
+        "min": vmin,
+        "max": vmax if vmax > vmin else vmin + 1.0,
+        "calculable": True,
+        "orient": "horizontal",
+        "left": "center",
+        "bottom": 4,
+        "inRange": {
+            "color": ["#e0f3ff", "#3366cc", "#0a2a66"],
+        },
+    }
+    opt["series"] = [
+        {
+            "type": "heatmap",
+            "data": data,
+            "label": {"show": True, "fontSize": 11, "color": "#222"},
+            "emphasis": {
+                "itemStyle": {
+                    "shadowBlur": 10,
+                    "shadowColor": "rgba(0,0,0,0.3)",
+                }
+            },
+        }
+    ]
+    return opt
+
+
+def _box_option(title: str, labels: list[str], values: list[float]) -> dict:
+    """Single-box boxplot showing the distribution of `values` across labels.
+
+    With aggregated answer tables (e.g. mean revenue per region), the
+    boxplot summarises the spread across the categories — useful for
+    spotting outliers ("which region is far from the median?"). When fewer
+    than 4 values are supplied the box collapses to a degenerate point;
+    the renderer's picker guards against that case by gating box on row
+    count ≥ 4.
+    """
+
+    opt = _base_option(title)
+    finite = sorted(v for v in values if math.isfinite(v))
+    if not finite:
+        finite = [0.0]
+    quartiles = _five_number_summary(finite)
+    # Standard Tukey outlier rule: a point lies beyond the *whiskers*
+    # when it sits outside `[Q1 - 1.5*IQR, Q3 + 1.5*IQR]`. The earlier
+    # formulation (CodeRabbit found) used `min` / `max` instead of Q1
+    # / Q3 — by definition no value is below min or above max, so no
+    # outliers ever appeared in the rendered chart.
+    iqr = quartiles[3] - quartiles[1]
+    lower_whisker = quartiles[1] - 1.5 * iqr
+    upper_whisker = quartiles[3] + 1.5 * iqr
+    outliers = [
+        [0, v]
+        for v in finite
+        if v < lower_whisker or v > upper_whisker
+    ]
+
+    opt["tooltip"] = {
+        "trigger": "item",
+        "formatter": (
+            "min: {c[0]}<br/>Q1: {c[1]}<br/>"
+            "median: {c[2]}<br/>Q3: {c[3]}<br/>max: {c[4]}"
+        ),
+    }
+    opt["xAxis"] = {
+        "type": "category",
+        "data": [title],
+        "boundaryGap": True,
+        "splitArea": {"show": True},
+        "axisLabel": {"fontSize": 11},
+    }
+    opt["yAxis"] = {
+        "type": "value",
+        "splitArea": {"show": True},
+        "name": "分布",
+    }
+    opt["series"] = [
+        {
+            "name": "boxplot",
+            "type": "boxplot",
+            "data": [list(quartiles)],
+            "itemStyle": {"color": "#3366cc", "borderColor": "#1a3d8f"},
+        },
+        {
+            "name": "outlier",
+            "type": "scatter",
+            "data": outliers,
+            "symbolSize": 8,
+            "itemStyle": {"color": "#dc3912"},
+        },
+    ]
+    return opt
+
+
+def _five_number_summary(
+    sorted_values: list[float],
+) -> tuple[float, float, float, float, float]:
+    """min, Q1, median, Q3, max for a non-empty sorted-ascending list.
+
+    Linear interpolation between adjacent ranks (numpy `linear` quartile
+    method). Bypasses numpy / statistics imports because the chart factory
+    deliberately stays dependency-light — Python ships everything we need.
+    """
+
+    n = len(sorted_values)
+
+    def _percentile(p: float) -> float:
+        if n == 1:
+            return sorted_values[0]
+        rank = p * (n - 1) / 100
+        low = int(rank)
+        high = min(low + 1, n - 1)
+        weight = rank - low
+        return sorted_values[low] * (1 - weight) + sorted_values[high] * weight
+
+    return (
+        sorted_values[0],
+        _percentile(25),
+        _percentile(50),
+        _percentile(75),
+        sorted_values[-1],
+    )
 
 
 def _format_value(value: float) -> str:
-    """Compact numeric label: integers render plain, floats keep 2 dp.
-
-    Non-finite inputs render as a literal "—" so a chart label never
-    shows "nan" / "inf" to the reader; geometry sanitises separately
-    via `_sanitise_values`.
-
-    Avoids `1234.0` and `1234.567899` cluttering the chart; both look
-    sloppy in a report someone has to read.
-    """
-
     if not math.isfinite(value):
         return "—"
     if value == int(value):

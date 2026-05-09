@@ -24,6 +24,7 @@ heuristic spaghetti.
 
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
 from typing import Literal
@@ -45,8 +46,14 @@ MAX_PROFILE_BYTES = UPLOAD_MAX_BYTES
 TOP_VALUES_LIMIT = 10
 HIGH_CARDINALITY_THRESHOLD = 50
 
+# How many non-null cells to inspect when sniffing a column for JSON
+# encoding. TMDB-style columns hit on the first cell, but a sniff window
+# of 5 tolerates the occasional `null` / blank prefix without misclassifying.
+JSON_SNIFF_SAMPLES = 5
+
 
 DtypeKind = Literal["numeric", "categorical", "datetime", "boolean", "text"]
+JsonShape = Literal["array", "object"]
 
 
 class _StrictModel(BaseModel):
@@ -98,6 +105,15 @@ class ColumnProfile(_StrictModel):
     maximum: float | None = Field(
         default=None, description="Only set for numeric columns."
     )
+    json_shape: JsonShape | None = Field(
+        default=None,
+        description=(
+            "Set when the column's first non-null cells parse as JSON "
+            "list/dict. Signals to the planner to use `explode_json` "
+            "(extracting a field from `array` shapes) before aggregating. "
+            "TMDB `genres` / `cast` / `crew` are the canonical example."
+        ),
+    )
 
 
 class TableProfile(_StrictModel):
@@ -122,8 +138,8 @@ def profile_table(path: Path) -> TableProfile:
     """Read a CSV / Excel file and produce a `TableProfile`.
 
     Reads the file fully (subject to MAX_PROFILE_BYTES). The upload path
-    has already capped the size; profiling a 20 MiB CSV is well under a
-    second on a laptop and gives us exact row counts for evidence.
+    has already capped the size, and exact profiling gives us row counts
+    for evidence.
     """
 
     if not path.exists():
@@ -196,6 +212,14 @@ def _profile_column(df: pd.DataFrame, name: str) -> ColumnProfile:
 
     top_values = _top_values(series, kind, high_card)
     minimum, maximum = _numeric_extents(series, kind)
+    # Sniff for JSON-encoded data on any string-bearing column. Gating on
+    # `kind == "text"` alone misses low-cardinality string columns that
+    # `_classify_dtype` labels `"categorical"` — e.g., TMDB `original_language`
+    # is categorical but `spoken_languages` (also on TMDB) is an object-dtype
+    # JSON string column that happens to have few distinct values. Check the
+    # underlying dtype + (for Categorical) the categories' dtype so we cover
+    # both. CodeRabbit fix on PR #21.
+    json_shape = _detect_json_shape(series) if _is_string_like(series) else None
 
     return ColumnProfile(
         name=name,
@@ -209,6 +233,7 @@ def _profile_column(df: pd.DataFrame, name: str) -> ColumnProfile:
         top_values=top_values,
         minimum=minimum,
         maximum=maximum,
+        json_shape=json_shape,
     )
 
 
@@ -284,3 +309,61 @@ def _numeric_extents(
     if not math.isfinite(mn) or not math.isfinite(mx):
         return None, None
     return mn, mx
+
+
+def _is_string_like(series: pd.Series) -> bool:
+    """True when the column carries text-shaped cells, regardless of how
+    `_classify_dtype` labels it for the planner.
+
+    Needed because the dtype-kind label is user-facing ("categorical"
+    / "text") and biased toward reader comprehension, while JSON
+    detection needs to peek at any column whose *underlying* storage is
+    string-shaped — including low-cardinality strings that get called
+    "categorical" by our label + pandas `CategoricalDtype` whose
+    `.categories` are strings. CodeRabbit fix on PR #21.
+    """
+
+    dtype = series.dtype
+    if pd.api.types.is_object_dtype(dtype) or pd.api.types.is_string_dtype(dtype):
+        return True
+    if isinstance(dtype, pd.CategoricalDtype):
+        return pd.api.types.is_string_dtype(dtype.categories.dtype)
+    return False
+
+
+def _detect_json_shape(series: pd.Series) -> JsonShape | None:
+    """Sniff the column for JSON-encoded list/dict cells.
+
+    Returns "array" when the first parsed cells are lists, "object" when
+    they're dicts, or None when no cells parse as JSON. We sample up to
+    `JSON_SNIFF_SAMPLES` non-null cells (TMDB lands on the first one);
+    a column where some cells are JSON and others are free text gets
+    classified by the first hit so the planner at least sees the signal.
+
+    The detector is conservative: a single non-JSON sample alongside
+    valid JSON would be tolerated, but no JSON at all returns None
+    (avoids miscategorising plain strings that look list-y like
+    "Action,Comedy").
+    """
+
+    non_null = series.dropna()
+    if non_null.empty:
+        return None
+    for value in non_null.head(JSON_SNIFF_SAMPLES):
+        if not isinstance(value, str):
+            continue
+        text = value.strip()
+        # Cheap pre-check before paying for the parse: JSON arrays /
+        # objects always start with `[` / `{`. Skips a json.loads on
+        # every plain text cell.
+        if not text or text[0] not in "[{":
+            continue
+        try:
+            parsed = json.loads(text)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(parsed, list):
+            return "array"
+        if isinstance(parsed, dict):
+            return "object"
+    return None

@@ -229,11 +229,18 @@ _BINOP_RENDER = {
 }
 
 
-# Functions we know `pandas.eval` / `DataFrame.query` will accept when
-# the grader replays the predicate. Anything outside this set is a bug
-# in the planner — surface it loudly rather than emit an Evidence the
-# replay step can't parse.
+# Functions `pandas.eval` / `DataFrame.query` accept directly during
+# grader replay. Anything outside this set raises during evidence
+# rendering — see `_render_expr` for the rationale (a non-replayable
+# filter would make the grader judge the finding's `value` as
+# fabricated and score the row 0).
 _CALL_RENDER_ALLOWED = frozenset({"abs", "round", "min", "max"})
+# DSL-allowed function names that aren't safe to render verbatim
+# because pandas.eval can't run them. Tracked here to make the
+# guardrail in `_render_expr` self-documenting; the planner system
+# prompt warns against using them inside filter / add_column
+# expressions whose output flows into evidence.
+_CALL_RENDER_UNREPLAYABLE = frozenset({"lower", "upper", "len", "if"})
 
 
 def _render_expr(expr: Expr) -> str:
@@ -247,15 +254,28 @@ def _render_expr(expr: Expr) -> str:
         op = _BINOP_RENDER.get(expr.op, expr.op)
         return f"({left} {op} {right})"
     if isinstance(expr, CallExpr):
-        if expr.fn not in _CALL_RENDER_ALLOWED:
-            # `pandas.eval` only exposes a small fixed function set; an
-            # unknown name renders into a predicate the grader can't run.
-            raise ValueError(
-                f"call to {expr.fn!r} is not pandas.eval-renderable; "
-                f"allowed: {sorted(_CALL_RENDER_ALLOWED)}"
-            )
         rendered = ", ".join(_render_expr(a) for a in expr.args)
-        return f"{expr.fn}({rendered})"
+        if expr.fn in _CALL_RENDER_ALLOWED:
+            return f"{expr.fn}({rendered})"
+        # Functions in `_CALL_RENDER_FALLBACK` (or any unknown function
+        # the DSL might grow) cannot be replayed by `pandas.eval` /
+        # `DataFrame.query`. The grader replays each Evidence row's
+        # `(filters, aggregation)` to verify the `value` we reported;
+        # an unrenderable filter string makes that replay fail and the
+        # finding gets scored 0 (赛题4 §3.2 evidence 真实性). Earlier
+        # this branch returned a `~fn(...)` "documentary" string that
+        # documented what we computed but was not replay-faithful.
+        # CodeRabbit pointed out the grader-failure risk; raising here
+        # propagates as a finalize / evidence-builder error so we never
+        # ship an Evidence row whose filter the grader cannot run.
+        raise ValueError(
+            f"call to {expr.fn!r} is not pandas.eval-renderable; "
+            f"allowed: {sorted(_CALL_RENDER_ALLOWED)}. "
+            "Planner must avoid string / boolean function calls inside "
+            "filter / add_column expressions when the result feeds an "
+            "Evidence row, because the grader replays the rendered "
+            "string with pandas.eval."
+        )
     # Closed union — defensive fallback in case Expr grows a new branch
     # and someone forgets to update us.
     raise TypeError(f"unrenderable expression: {type(expr).__name__}")

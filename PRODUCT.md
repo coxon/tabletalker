@@ -1,31 +1,37 @@
-# TableTalker — Product Brief
+# TableTalker 产品简述
 
-## What it is
+## 产品是什么
 
-TableTalker is a data analysis agent. Give it a CSV or Excel file and a
-plain-English question, and it returns an interactive HTML report — with
-charts, a written narrative, and the ability to ask follow-up questions
-that drill deeper into the same data.
+TableTalker 是一个面向结构化数据的智能分析 Agent。用户上传一个或多个
+CSV / Excel 文件，用自然语言提出分析需求，系统返回一份交互式 HTML 报告：
+包含关键发现、可复算证据、图表、业务建议，并支持基于同一份数据继续追问。
 
-## Who it's for
+当前版本优先服务赛题 4 的评测场景，中文体验优先；当上传数据和字段语义支持时，
+也可以处理英文问题。
 
-Operators, analysts, and decision-makers who need answers from spreadsheets
-without writing pandas code or waiting on a data team. Anyone who has ever
-opened a CSV in Excel, scrolled around, and thought "what is this telling me?"
+## 面向谁
 
-## What makes it different
+第一目标用户是评委和复盘人员：需要快速上传隐藏数据、输入分析问题、查看报告、
+追问并判断证据是否可信。
 
-- **Reproducible findings.** Every number in the report is backed by code
-  the user can re-run. If a claim cannot be reproduced from the data, the
-  agent says so instead of guessing.
-- **Follow-up native.** Reports are not the end — they are the start of a
-  conversation. The agent keeps the dataset in working memory and answers
-  follow-ups in the same context.
-- **Exportable, shareable.** A report is a single self-contained HTML file
-  with Plotly charts embedded — no server needed to view it later.
+后续产品化目标用户是运营、业务分析师和管理者：他们需要从表格中获得结论，
+但不希望自己写 pandas 代码或等待数据团队排期。
 
-## Out of scope
+## 核心能力
 
-- Dashboards that auto-refresh against a live database.
-- Real-time streaming data.
-- Multi-user collaboration on the same report.
+- **有证据的结论**：LLM 只生成类型化计划，本地 pandas 算子负责计算数值，
+  关键发现挂载可复算证据。
+- **多文件分析**：支持主文件 + `extra_files`，可覆盖 TMDB movies + credits
+  这类多表数据集。
+- **交互式报告**：HTML 报告内联 ECharts 运行时，无 CDN 依赖。
+- **原生追问**：会话保留父轮关键发现、客群定义、图表锚点、上传文件和
+  采样信息。
+- **批量与历史**：提供批量评测页面和 SQLite-backed 历史记录。
+- **保守拒答**：当数据不支持问题时，使用固定中文话术说明原因，
+  不编造证据。
+
+## 不做什么
+
+- 不连接生产实时数据库做自动刷新仪表盘。
+- 不做多人协同编辑同一份报告。
+- 不保存、训练或回流隐藏评测数据与隐藏题。

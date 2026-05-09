@@ -12,6 +12,7 @@ dependencies = [
   "httpx>=0.27",
   "pandas>=2.2",
   "openpyxl>=3.1",
+  "xlrd>=2.0",
   "python-multipart>=0.0.20",
   "jinja2>=3.1",
 ]
@@ -37,6 +38,15 @@ select = ["E", "F", "I", "B", "UP", "RUF"]
 # RUF001/RUF003: we intentionally use Unicode in user-facing trace strings
 # and comments (×, ⋈, →) — they read better than ASCII for the report UI.
 ignore = ["RUF001", "RUF003"]
+
+[tool.ruff.lint.per-file-ignores]
+# `app/main.py` deliberately calls `load_dotenv()` before importing
+# `app.api.*` because those modules read env at import time (LLMConfig,
+# limits.py, etc.). Re-ordering imports above `load_dotenv` would
+# silently break local dev / containers that rely on `.env` for
+# required vars. The E402 ("module-level import not at top of file")
+# is the intentional cost.
+"app/main.py" = ["E402"]
 
 [tool.pyright]
 pythonVersion = "3.11"

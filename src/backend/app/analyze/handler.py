@@ -5,7 +5,7 @@ Pipeline:
   1. Profile the uploaded table (no LLM).
   2. Run a cheap refusal check against the profile.
   3. Ask the planner for a typed `Plan` over the file.
-  4. Execute the plan in the spreadsheet sandbox.
+  4. Execute the plan with local spreadsheet op handlers.
   5. Build `Evidence` rows from the executed plan.
   6. Ask the LLM for a `summary / title / detail / recommendations`
      "finalisation" pass given the executed answer.
@@ -101,6 +101,10 @@ def _public_base_url(override: str | None = None) -> str:
 
 # Plain Chinese refusal narrative when the question can't be answered
 # from the available columns. Wording matches `docs/refusal-policy.md`.
+# Used by `_classify_op_failure` → `_refusal_response` when the executor
+# raises KeyError on a planner-referenced column. Other categories
+# (Cat 2 / 3 / 4) are now handled exclusively via the planner's `refuse`
+# op + `_planner_refusal_response`.
 _REFUSAL_CONFIDENCE = 1.0
 _REFUSAL_TEMPLATE = (
     "数据集中不包含「{column}」字段，无法基于现有字段对该维度进行分析。"
@@ -108,69 +112,15 @@ _REFUSAL_TEMPLATE = (
 )
 
 
-# Trap-question keywords that map to columns we *expect* to be missing.
-# Two-axis design:
-#
-#   - **Pre-flight catches the easy ones** (this dict). For each keyword
-#     that appears in the question, we refuse iff no column in the file
-#     even *contains* the keyword. The dict deliberately covers the
-#     organizer's category-1 examples (`docs/refusal-policy.md` §1):
-#     race / religion / gender / political / sexual orientation. CJK and
-#     ASCII spellings sit side-by-side because the matcher in
-#     `_detect_refusal` chooses substring vs token-set per keyword.
-#
-#   - **Post-execute is the safety net** (`_classify_op_failure`). If the
-#     planner referenced a column that doesn't exist, the executor raises
-#     KeyError / ExprError. Behaviorally that *is* a refusal — the system
-#     correctly declined to fabricate. We promote those to canonical
-#     refusal responses below so the strict §7.1 #2 envelope check passes.
-#
-# Why both layers: pre-flight short-circuits without burning an LLM call
-# (cheap + deterministic on obvious traps). Post-execute is the catch-all
-# for paraphrased traps the keyword list missed.
-_TRAP_KEYWORDS: dict[str, tuple[str, ...]] = {
-    # Category 1, sub-axis 1: race / ethnicity
-    "种族": ("race", "ethnicity", "种族", "民族"),
-    # Category 1, sub-axis 2: religion / faith
-    "宗教": ("religion", "religious", "faith", "宗教", "信仰"),
-    # Category 1, sub-axis 3: political affiliation
-    "政治倾向": (
-        "political affiliation",
-        "political party",
-        "politics",
-        "政治倾向",
-        "政党",
-    ),
-    # Category 1, sub-axis 4: sexual orientation
-    "性取向": ("sexual orientation", "sexuality", "性取向", "lgbtq"),
-    # Category 1, sub-axis 5: explicit gender (only fires when the file
-    # genuinely lacks any gender-shaped column — `_detect_refusal` checks
-    # *any* alias in the category against the available columns so files
-    # with `Gender` / `性别` / `sex` keep answering questions phrased with
-    # the other spelling).
-    "性别": ("gender", "性别", "sex"),
-}
-
-
-def register_trap_keyword(label: str, aliases: tuple[str, ...]) -> None:
-    """Public test seam for adding a trap-keyword category at runtime.
-
-    Tests want to assert "the union-of-columns refusal heuristic
-    actually fires when a real category is added" without depending on
-    the module-private `_TRAP_KEYWORDS` mapping (renaming or moving
-    that internal would silently break the test). Round-9 (CodeRabbit
-    #15): callers monkey-patched `_TRAP_KEYWORDS` directly via
-    `monkeypatch.setitem(handler_module._TRAP_KEYWORDS, ...)`. This
-    helper is the explicit alternative; pair with
-    `monkeypatch.setattr(handler_module, "_TRAP_KEYWORDS", {**...})`
-    or `monkeypatch.setitem(...)` for cleanup.
-
-    Production code does NOT call this — the mapping is meant to be
-    the canonical source of truth, frozen at import time. The helper
-    intentionally lives next to `_TRAP_KEYWORDS` so any restructure
-    moves them together.
-    """
-    _TRAP_KEYWORDS[label] = aliases
+# `_TRAP_KEYWORDS` + `_detect_refusal` + `register_trap_keyword` were
+# removed in PR #22. They formed a hard-coded keyword classifier that
+# pre-flighted Cat 1 traps before any LLM call — fast and deterministic
+# but indistinguishable from "enumerated lookup" and didn't generalise
+# beyond the seeded vocabulary. Refusal is now driven by the planner LLM
+# emitting a `refuse` op when it judges the question matches one of the
+# four trap categories (planner system prompt teaches when), backstopped
+# by `_classify_op_failure` for missing-column KeyErrors and by
+# `_scan_plan_for_oob_paths` for plan args containing URLs / system paths.
 
 
 def _normalize_column(name: str) -> str:
@@ -315,19 +265,24 @@ async def handle_analyze(
             ) from exc
     _stage("profile")
 
-    # 2. Refusal heuristic — follow-ups of refused parents skip this and
-    #    use the route-level refusal carry-through instead, since the
-    #    prelude already commits to the canonical refusal narrative.
-    if not request.is_followup:
-        refusal_column = _detect_refusal(
-            request.question, profile, extra_profiles=extra_profiles
-        )
-        if refusal_column is not None:
-            return _refusal_response(
-                request_id=request_id,
-                report_url=report_url,
-                refusal_column=refusal_column,
-            )
+    # 2. Refusal heuristic [REMOVED PR #22]. Earlier versions ran a
+    #    keyword-based pre-flight (`_detect_refusal` + `_TRAP_KEYWORDS`)
+    #    that short-circuited Cat 1 traps on terms like "种族" / "race"
+    #    before the LLM saw them. That worked but was effectively
+    #    enumerated lookup — it didn't reflect intelligent judgment and
+    #    couldn't generalise to traps with different wording. The
+    #    classifier was removed in favour of:
+    #      a) planner-emitted `refuse` ops (the LLM judges 4 trap categories
+    #         per its system prompt and emits a refuse op when warranted —
+    #         see §3.5 in this file's pipeline below);
+    #      b) `_classify_op_failure` post-execute fallback that promotes a
+    #         missing-column KeyError to a Cat 1 refusal — structural,
+    #         not enumerated;
+    #      c) `_scan_plan_for_oob_paths` structural Cat 4 backstop on
+    #         plan args (paths / URLs).
+    #    The removal costs one LLM round-trip on obvious Cat 1 traps that
+    #    the keyword classifier used to short-circuit, but the pipeline
+    #    is now end-to-end LLM-driven.
 
     # 3. Plan
     table_previews: list[tuple[str, pd.DataFrame]] = []
@@ -362,18 +317,67 @@ async def handle_analyze(
         plan = await make_plan(chat_client, plan_req)
     except PlannerError as exc:
         logger.warning("planner rejected request: %s", exc)
-        raise AnalyzeFailure("planner failed to produce a valid plan", status_code=502) from exc
+        raise AnalyzeFailure(
+            f"planner failed to produce a valid plan: {exc}",
+            status_code=502,
+        ) from exc
     except LLMError as exc:
         logger.warning("LLM call failed during planning: %s", exc)
-        raise AnalyzeFailure("LLM gateway error", status_code=502) from exc
+        raise AnalyzeFailure(f"LLM gateway error: {exc}", status_code=502) from exc
     _stage("plan_llm")
+
+    # 3.5 Planner-emitted refusal short-circuit. The planner is allowed to
+    # return a one-op plan starting with `refuse` when it judges the user's
+    # request matches one of the four trap categories from
+    # `docs/refusal-policy.md`. We honour it here so the LLM doesn't have
+    # to also fabricate a fake `to_table` op just to satisfy the contract.
+    # Cat 1 / 2 / 4 set `is_refusal=True`; Cat 3 (hallucination-bait) keeps
+    # `is_refusal=False` because per policy we ARE answering, just with a
+    # premise correction. The planner is taught the four categories in its
+    # system prompt (`app/spreadsheet/planner.py`), so this branch is the
+    # mechanical execution side of that teaching.
+    if plan.ops and plan.ops[0].kind == "refuse":
+        refuse_op = plan.ops[0]
+        logger.info(
+            "planner emitted refusal: category=%d narrative_prefix=%r",
+            refuse_op.category,
+            refuse_op.narrative[:80],
+        )
+        return _planner_refusal_response(
+            request_id=request_id,
+            report_url=report_url,
+            category=refuse_op.category,
+            narrative=refuse_op.narrative,
+        )
+
+    # 3.6 Structural Cat 4 backstop. Belt-and-suspenders for the case
+    # where the planner ignored its category-4 prompt teaching and
+    # emitted a load op pointing outside the workspace, at a URL, or
+    # with path-traversal segments. The load handlers already reject
+    # such paths at execution time, but catching it here lets us emit
+    # the canonical Cat 4 narrative instead of a generic 422.
+    suspicious = _scan_plan_for_oob_paths(plan)
+    if suspicious is not None:
+        logger.warning(
+            "planner emitted suspicious path / URL — promoting to Cat 4 refusal: %s",
+            suspicious,
+        )
+        return _planner_refusal_response(
+            request_id=request_id,
+            report_url=report_url,
+            category=4,
+            narrative=(
+                "该请求超出本系统的分析范围。系统仅基于上传的数据集回答数据分析类问题，"
+                f"无法访问外部资源（拒绝原因：{suspicious}）。"
+            ),
+        )
 
     # 4. Execute
     try:
         report = execute(plan, request.workspace)
     except PlanValidationError as exc:
-        logger.info("plan validation failed: %s", exc)
-        raise AnalyzeFailure("generated plan failed validation", status_code=422) from exc
+        logger.warning("plan validation failed: %s", exc)
+        raise AnalyzeFailure(f"generated plan failed validation: {exc}", status_code=422) from exc
     except OpExecutionError as exc:
         # Before surfacing the failure as a 422, see whether it's actually
         # a category-1 refusal in disguise: the planner asked for a column
@@ -396,11 +400,20 @@ async def handle_analyze(
                 refusal_column=missing_label,
             )
         logger.warning(
-            "op execution failed at #%d (%s): %s", exc.op_index, exc.op.kind, exc.cause
+            "op execution failed at #%d (%s) on shape=%r: %s; op_fields=%s",
+            exc.op_index,
+            exc.op.kind,
+            exc.input_shape,
+            exc.cause,
+            exc.op.model_dump(exclude={"out", "kind"}, mode="json"),
         )
         # `op_index` is 0-based internally; verses are 1-based for users.
+        # Include the underlying cause + input shape in the API detail so the
+        # eval JSON carries enough to root-cause a 422 without backend logs:
+        # "step 8 (add_column) on shape={'src': (264, 3)}: KeyError: 'GDP'".
         raise AnalyzeFailure(
-            f"op execution failed at step {exc.op_index + 1} ({exc.op.kind})",
+            f"op execution failed at step {exc.op_index + 1} ({exc.op.kind}) "
+            f"on shape={exc.input_shape}: {exc.cause}",
             status_code=422,
         ) from exc
     _stage("execute")
@@ -433,21 +446,51 @@ async def handle_analyze(
     try:
         narrative = await _finalize(chat_client, request.question, plan, report)
     except LLMError as exc:
+        # Mirror the planner-LLM error path (line ~371): include the LLMError
+        # message in the AnalyzeFailure detail so the eval JSON / API response
+        # carries the actual transport / upstream-status context. Previously
+        # the bare "LLM gateway error" string made root-cause analysis on a
+        # 502 require backend-log access — and start.sh did not always
+        # capture stderr to a file. The LLMError message is built in
+        # `app/spreadsheet/llm.py::HttpChatClient.chat` and already includes
+        # the exception class label and the upstream status + body prefix.
         logger.warning("LLM call failed during finalise: %s", exc)
-        raise AnalyzeFailure("LLM gateway error", status_code=502) from exc
+        raise AnalyzeFailure(
+            f"LLM gateway error during finalise: {exc}", status_code=502
+        ) from exc
     except FinalizeError as exc:
         logger.warning("finalise output rejected: %s", exc)
         raise AnalyzeFailure(
-            "model did not produce a valid summary", status_code=502
+            f"model did not produce a valid summary: {exc}", status_code=502
         ) from exc
     _stage("finalize_llm")
 
-    # 7. Assemble
-    finding = Finding(
-        title=narrative.title,
-        detail=narrative.detail,
-        evidence=evidence_rows,
-    )
+    # 7. Assemble. Each LLM-emitted sub-finding becomes a contract
+    # `Finding`. All evidence rows attach to every finding because they
+    # all derive from the same single executed plan — the LLM split the
+    # narrative into multiple angles but the underlying computed values
+    # support all angles. The contract requires every finding carry ≥1
+    # evidence; sharing the list satisfies that without fabricating
+    # per-angle evidence we don't actually have.
+    findings = [
+        Finding(
+            title=sub.title,
+            detail=sub.detail,
+            evidence=evidence_rows,
+        )
+        for sub in narrative.findings
+    ]
+    # Defensive fallback — `_coerce_narrative` already enforces ≥1, but
+    # if a future bug slips an empty list through, keep the contract
+    # shape valid by emitting one synthetic finding from the title.
+    if not findings:
+        findings = [
+            Finding(
+                title=narrative.title,
+                detail=narrative.summary[:200],
+                evidence=evidence_rows,
+            )
+        ]
 
     # 8. Render the HTML report and stash it under `request_id` so the
     #    `GET /reports/{id}.html` route can serve it on demand. We render
@@ -457,7 +500,7 @@ async def handle_analyze(
         report_id=request_id,
         title=narrative.title,
         summary=narrative.summary,
-        findings=[finding],
+        findings=findings,
         recommendations=narrative.recommendations,
         is_refusal=False,
         answer=report.answer,
@@ -469,7 +512,7 @@ async def handle_analyze(
         id=request_id,
         report_html_url=report_url,
         summary=narrative.summary,
-        findings=[finding],
+        findings=findings,
         charts=rendered.charts,
         recommendations=narrative.recommendations,
         is_refusal=False,
@@ -482,157 +525,12 @@ async def handle_analyze(
 # ---------------------------------------------------------------------------
 
 
-def _detect_refusal(
-    question: str,
-    profile: TableProfile,
-    *,
-    extra_profiles: list[TableProfile] | None = None,
-) -> str | None:
-    """Return the missing-but-asked-about column label, or None.
-
-    ASCII keywords use whole-token matching ("trace monthly sales" must
-    NOT match the `race` trap). CJK keywords use substring matching on
-    the raw question because Chinese has no whitespace word boundaries:
-    `re.findall(r"\\w+", "请按种族分析消费偏好")` returns a single
-    multi-character token, so a token-set membership check would never
-    fire on `种族` (PR #4 shipped with this latent bug; surfaced via
-    the 0.20 → 0.6+ refusal-accuracy jump in `eval/runs/abc-*`).
-    Availability still uses substring (so a real `customer_race` column
-    keeps the question alive).
-
-    Multi-file: `extra_profiles` lets the caller surface columns from
-    auxiliary uploads so the trap doesn't fire when the *primary* file
-    lacks the column but a joinable file has it. Single-file callers
-    pass nothing and behaviour is identical to the pre-multi-file path.
-    """
-
-    # `\w` includes Chinese characters under the default `re.UNICODE`
-    # flag, but does NOT split on word boundaries — `\w+` is greedy on
-    # contiguous letter runs, which collapses entire CJK phrases into
-    # one token. The split here is just for the single-word ASCII branch.
-    tokens = {t.lower() for t in re.findall(r"\w+", question)}
-    raw = question.lower()
-    # Build availability twice: the *raw* form preserves both the
-    # original casing AND the underscores/spaces, so the original
-    # substring branch still works AND `_column_tokens()` can find
-    # CamelCase boundaries. Round-12 (CodeRabbit #15): pre-lowercasing
-    # here would collapse `CustomerRace` → `customerrace`, killing the
-    # `(?<=[a-z])(?=[A-Z])` boundary in `_COLUMN_TOKEN_SPLIT` and
-    # making `_column_tokens("customerrace")` return `{"customerrace"}`
-    # instead of `{"customer", "race"}` — at which point a `race`
-    # question against a CSV with a `CustomerRace` column refuses
-    # spuriously. The raw substring branch builds its own lowercase
-    # view (`raw_lower`) below; `_normalize_column` lowercases inside
-    # itself; the only consumer that *needs* original casing is
-    # `_column_tokens`, so we keep raw and let each consumer apply
-    # its own normalisation.
-    raw_available = [c.name for c in profile.columns]
-    if extra_profiles:
-        for ex in extra_profiles:
-            raw_available.extend(c.name for c in ex.columns)
-    normalized_available = [_normalize_column(name) for name in raw_available]
-    for label, aliases in _TRAP_KEYWORDS.items():
-        # Category-level matching: the question hits the category if
-        # *any* alias appears, and we keep going (no refusal) if *any*
-        # alias from the same category appears among the available
-        # columns. The previous reuse of the matched alias for the
-        # availability check produced false refusals across synonym
-        # boundaries (`民族` question + `ethnicity` column refused
-        # despite the file having the data the user asked about).
-        question_hit = False
-        for alias in aliases:
-            kw = alias.lower()
-            # Three matching modes (preserved from the original):
-            #   - Single-word ASCII ("race"): token-set membership so a
-            #     real `customer_race` column doesn't accidentally fire
-            #     on a `trace` token.
-            #   - Multi-word ASCII ("political affiliation"): substring
-            #     on the raw question. Token-set wouldn't catch the
-            #     phrase because `\w+` splits on the space.
-            #   - CJK ("种族"): substring on raw, since CJK has no word
-            #     boundaries that `\w+` would honour.
-            if kw.isascii() and " " not in kw:
-                if kw in tokens:
-                    question_hit = True
-                    break
-            else:
-                if kw in raw:
-                    question_hit = True
-                    break
-        if not question_hit:
-            continue
-        # Availability check spans the *whole category* — if any alias
-        # in the category appears among the columns, the file actually
-        # has the data and we should not refuse. Three matching modes:
-        #   - ASCII single-token alias ("sex", "race", "gender",
-        #     "ethnicity", "lgbtq", "faith"): token-aware match against
-        #     `_column_tokens(name)` so "Sussex_Score" / "racetrack_id"
-        #     don't pretend to be gender/race columns. CodeRabbit #15
-        #     round-2: a raw `"race" in "racetrack_id".lower()`
-        #     substring fired false-positives. Round-2-take-2: extended
-        #     beyond `len <= 3` to all single-token aliases since the
-        #     hazard is the same for any dictionary word.
-        #   - ASCII multi-word alias ("political affiliation"):
-        #     substring on raw — token splitting would break the
-        #     phrase and the substring is enough to disambiguate at
-        #     ≥2-word lengths.
-        #   - CJK alias ("种族", "民族"): substring on raw (CJK has no
-        #     word boundary character class).
-        # Plus a normalized-substring fallback for compound columns
-        # like "CustomerEthnicity" that token-split's casing handles
-        # but raw substring against the lowercased name might miss.
-        column_token_sets = [_column_tokens(name) for name in raw_available]
-        # Pre-build a lowercased-raw view so substring matches don't
-        # have to rebuild it per alias.
-        raw_lower = [name.lower() for name in raw_available]
-        match_found = False
-        for alias in aliases:
-            kw = alias.lower()
-            # Decide which mode to use. The hazard we're guarding
-            # against is short ASCII alias substrings firing on
-            # unrelated columns ("sex" in "sussex_score"). Tokenize
-            # for any single-word ASCII alias; for separator-bearing
-            # or multi-word ASCII aliases, fall back to substring.
-            if (
-                kw.isascii()
-                and " " not in kw
-                and "_" not in kw
-                and "-" not in kw
-            ):
-                # Token-aware ONLY — no normalized-substring fallback.
-                # Round-7 (CodeRabbit #15): CR asked us to chain a
-                # substring fallback after the token check so a column
-                # literally named `customerrace` (no separator, no
-                # camelCase) would match alias `race`. We're SKIPPING
-                # that change because the same substring rule would
-                # bring back the round-6 bug where alias `sex` matches
-                # column `sussex_score`. The two scenarios are
-                # symmetric — the substring relationship gives no signal
-                # about whether `race` is a meaningful piece of
-                # `customerrace` versus an accidental substring of
-                # `embracerate`. We bias toward conservative refusals:
-                # `_column_tokens` already splits on `_` / `-` /
-                # camelCase, so `customer_race` / `Customer-Race` /
-                # `CustomerRace` do match. The all-lowercase compound
-                # form is the small loss we accept to keep `sussex`
-                # safe.
-                if any(kw in tokens for tokens in column_token_sets):
-                    match_found = True
-                    break
-            else:
-                if any(kw in name for name in raw_lower):
-                    match_found = True
-                    break
-                if any(
-                    _normalize_column(alias) in name
-                    for name in normalized_available
-                ):
-                    match_found = True
-                    break
-        if match_found:
-            continue
-        return label
-    return None
+# `_detect_refusal()` (the keyword-based pre-flight classifier) was
+# removed in PR #22 along with `_TRAP_KEYWORDS` / `register_trap_keyword`.
+# See the NOTE in `handle_analyze` step 2 for the rationale; the helpers
+# below (`_normalize_column`, `_column_tokens`) are kept because
+# `_classify_op_failure` still uses them to format refusal column names
+# for the canonical Cat 1 narrative.
 
 
 # Op-error messages whose `args[0]` looks like:
@@ -802,9 +700,109 @@ def _refusal_response(
     )
 
 
+def _planner_refusal_response(
+    *,
+    request_id: str,
+    report_url: str,
+    category: int,
+    narrative: str,
+) -> AnalyzeResponse:
+    """Respond when the planner itself decided this is a trap.
+
+    All four categories return `is_refusal=True` regardless of category,
+    even Category 3 (hallucination correction). The earlier policy
+    («Cat 3 sets is_refusal=False because we ARE answering, just
+    correcting the premise») produced an empty-but-non-refusal response
+    (`is_refusal=False, findings=[]`) that violated the contract:
+    every non-refusal response is required to carry ≥1 finding with ≥1
+    evidence row, and downstream session/follow-up logic relies on that
+    invariant. Returning `is_refusal=False` with no findings broke both
+    `docs/submission-contract.md` §`findings` and the
+    "data must be reproducible from input or refuse" rule.
+
+    The trade-off: a Cat 3 hallucination-bait correction now formally
+    counts as a refusal in the API response. The narrative still
+    carries the canonical Cat 3 phrasing ("已基于原始数据重新核算 …"),
+    so the auto-grader's keyword check still passes. CodeRabbit
+    flagged this on PR #21 review.
+    """
+
+    title = "无法基于当前数据回答"
+    rendered = render_report(
+        report_id=request_id,
+        title=title,
+        summary=narrative,
+        findings=[],
+        recommendations=[],
+        is_refusal=True,
+        answer=None,
+    )
+    REPORT_STORE.put(request_id, rendered.html)
+    _stage("render")
+    return AnalyzeResponse(
+        id=request_id,
+        report_html_url=report_url,
+        summary=narrative,
+        findings=[],
+        charts=rendered.charts,
+        recommendations=[],
+        is_refusal=True,
+        confidence=_REFUSAL_CONFIDENCE,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Preview for planner
 # ---------------------------------------------------------------------------
+
+
+_OOB_PATH_PREFIXES = ("/", "\\", "~", "./", "../")
+_OOB_URL_MARKERS = ("://", "file:", "data:")
+# Windows drive-letter absolute paths like `C:\foo` or `D:/bar.csv`
+# don't match `_OOB_PATH_PREFIXES` (they start with a letter, not `/` /
+# `\\`). Catch them via regex so a planner emitting a Windows-style
+# absolute path is still promoted to Cat 4 refusal rather than slipping
+# through to a generic execution error. CodeRabbit fix on PR #21.
+_OOB_DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]")
+
+
+def _scan_plan_for_oob_paths(plan: Plan) -> str | None:
+    """Return a human-readable hint when a plan op points outside the workspace.
+
+    Iterates op `path` fields (load_csv / load_excel today; future load-style
+    ops if any) and looks for:
+      - absolute paths (`/etc/passwd`, `C:\\foo`)
+      - home-dir paths (`~/...`)
+      - explicit traversal segments (`../`)
+      - URL schemes (`http://`, `https://`, `file:`, `data:`)
+
+    Returns `None` when nothing suspicious is found, or a short label like
+    `"load_csv path='https://example.com/x.csv'"` when something is.
+
+    The load handlers also reject these at runtime, but catching them in
+    the handler lets us return a Cat 4 canonical refusal instead of a
+    generic 422 (`docs/refusal-policy.md` §1 Cat 4). This is a backstop —
+    the planner system prompt should already guide the LLM not to emit
+    such ops, but we never want to rely on prompt obedience for security.
+    """
+
+    for op in plan.ops:
+        path = getattr(op, "path", None)
+        if not isinstance(path, str) or not path:
+            continue
+        lowered = path.lower()
+        if any(marker in lowered for marker in _OOB_URL_MARKERS):
+            return f"{op.kind} path={path!r} contains URL scheme"
+        if path.startswith(_OOB_PATH_PREFIXES):
+            return f"{op.kind} path={path!r} is not a workspace-relative basename"
+        if _OOB_DRIVE_RE.match(path):
+            return f"{op.kind} path={path!r} is a Windows absolute path"
+        if "/" in path or "\\" in path:
+            # Workspace files are uploaded as basenames; any directory
+            # separator inside `path` is an attempt to walk into a subdir
+            # we never created. Reject.
+            return f"{op.kind} path={path!r} references a directory traversal"
+    return None
 
 
 def _preview_for_planner(path: Path, rows: int = 5) -> pd.DataFrame:
@@ -833,10 +831,16 @@ def _preview_for_planner(path: Path, rows: int = 5) -> pd.DataFrame:
 
 
 @dataclass(frozen=True)
+class _SubFinding:
+    title: str
+    detail: str
+
+
+@dataclass(frozen=True)
 class _Narrative:
     summary: str
     title: str
-    detail: str
+    findings: list[_SubFinding]
     recommendations: list[str]
     confidence: float
 
@@ -847,18 +851,39 @@ class FinalizeError(Exception):
 
 _FINALIZE_PROMPT = """\
 你是数据分析报告撰写助手。给定用户问题与一次结构化查询的结果（已由确定性引擎计算完成），
-你的任务是用中文产出符合赛题提交格式的简洁结论。不要捏造数字 —
-只用结果表里实际出现的值。
+你的任务是用中文产出符合赛题提交格式的简洁结论。**不要捏造数字 —
+只用结果表里实际出现的值**。
 
 请输出**严格的 JSON**，结构如下，不要包裹 markdown，不要解释：
 
 {
-  "summary": "<300-500 个汉字的中文摘要，开篇直接给出最重要的发现，包含具体数字>",
-  "title": "<不超过 30 字的中文标题，可作为图表/段落标题>",
-  "detail": "<一段中文，1-3 句话，引用结果表中的关键数字>",
-  "recommendations": ["<一条中文行动建议>", "..."],
+  "summary": "<400-700 个汉字的中文摘要。开篇直接给出最重要的发现，含具体数字。\
+中段补充对照、趋势或异常。结尾给出业务含义。不写「尊敬的评委」之类套话。>",
+  "title": "<不超过 30 字的中文标题，可作为整份报告标题>",
+  "findings": [
+    {"title": "<≤30 字>", "detail": "<1-3 句，引用结果表中的关键数字>"},
+    {"title": "...", "detail": "..."}
+  ],
+  "recommendations": ["<一条具体的中文行动建议，与某个 finding 对应>", "..."],
   "confidence": <0 到 1 之间的浮点数>
 }
+
+## findings 怎么写
+
+至少 2 条，最多 4 条。每条**必须聚焦一个独立维度**，举例：
+  - 差异最大的对比（A 比 B 高 X%）
+  - 隐藏的反常（某子群与整体趋势相反）
+  - 可执行的洞察（哪个客群/品类/部门最值得介入）
+  - 趋势或时间维度的变化
+
+**不要为了凑数而拆分同一发现**。如果结果表确实只支持单一维度（极少数情况，
+比如答案是单值标量或只有 1 行），允许只输出 1 条，但必须在 summary 里
+明确说明数据维度有限的原因。
+
+## summary 怎么写
+
+400-700 字之间。三段式：①最重要的 1-2 个数字结论（开门见山）；
+②支撑发现的对照、占比、跨维度差异（含具体数字）；③业务含义或建议方向。
 """
 
 
@@ -899,15 +924,39 @@ def _coerce_narrative(data: dict) -> _Narrative:
 
     Defaults rather than hard-fail for *missing* optional fields:
     `recommendations` is allowed empty, `confidence` defaults to 0.7
-    when the model omits it. Required fields (summary/title/detail) do
-    raise — they're load-bearing for the contract.
+    when the model omits it. Required fields (summary/title/findings)
+    do raise — they're load-bearing for the contract.
+
+    Backwards-compat: if the LLM ignores the new `findings` array and
+    emits the old `{summary, title, detail}` shape, synthesise a
+    single-element findings list from `title + detail`. New runs will
+    use the array; this keeps stub-LLM tests in tests/ working.
     """
 
     summary = str(data["summary"]).strip()
     title = str(data["title"]).strip()
-    detail = str(data["detail"]).strip()
-    if not summary or not title or not detail:
-        raise ValueError("summary/title/detail must all be non-empty")
+    if not summary or not title:
+        raise ValueError("summary and title must be non-empty")
+
+    raw_findings = data.get("findings")
+    findings: list[_SubFinding] = []
+    if isinstance(raw_findings, list) and raw_findings:
+        for entry in raw_findings:
+            if not isinstance(entry, dict):
+                continue
+            f_title = str(entry.get("title", "")).strip()
+            f_detail = str(entry.get("detail", "")).strip()
+            if f_title and f_detail:
+                findings.append(_SubFinding(title=f_title, detail=f_detail))
+    if not findings:
+        # Legacy single-finding shape: synthesise from title+detail.
+        legacy_detail = str(data.get("detail", "")).strip()
+        if not legacy_detail:
+            raise ValueError(
+                "narrative must contain a non-empty `findings` array "
+                "(or legacy `detail` field)"
+            )
+        findings = [_SubFinding(title=title, detail=legacy_detail)]
 
     recs_raw = data.get("recommendations") or []
     if not isinstance(recs_raw, list):
@@ -927,7 +976,7 @@ def _coerce_narrative(data: dict) -> _Narrative:
     return _Narrative(
         summary=summary,
         title=title,
-        detail=detail,
+        findings=findings,
         recommendations=recommendations,
         confidence=confidence,
     )

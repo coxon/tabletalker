@@ -57,7 +57,10 @@ class Evidence(_StrictModel):
         description="Function-call form, e.g. `mean(Purchase Amount (USD))`, `count(*)`.",
     )
     value: float | int | str = Field(
-        ..., description="Actual aggregation result captured from the sandbox run. Never inferred."
+        ...,
+        description=(
+            "Actual aggregation result captured from typed-op execution. Never inferred."
+        ),
     )
     row_count: int | None = Field(
         default=None, description="Post-filter row count. Required for any sampled analysis."

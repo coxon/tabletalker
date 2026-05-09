@@ -38,7 +38,7 @@ from app.analyze.handler import (
     make_followup_id,
 )
 from app.analyze.schema import AnalyzeResponse
-from app.analyze.stages import bind_stage_timer, serialize_header
+from app.analyze.stages import StageTimer, bind_stage_timer, serialize_header
 from app.persistence import get_session_recorder
 from app.session import (
     SESSION_STORE,
@@ -185,6 +185,7 @@ async def follow_up(
         sampling_rate=session.sampling_rate,
         sampling_note=session.sampling_note,
     )
+    timer: StageTimer | None = None
     try:
         with bind_stage_timer() as timer:
             analyze_response = await handle_analyze(
@@ -195,7 +196,13 @@ async def follow_up(
         SESSION_STORE.discard_turn(
             session.id, turn_index, allocation_token=alloc_token
         )
-        raise HTTPException(exc.status_code, str(exc)) from exc
+        # Forward stage timings on error too — see analyze.py for rationale.
+        timings_header = serialize_header(timer) if timer is not None else "{}"
+        raise HTTPException(
+            exc.status_code,
+            str(exc),
+            headers={"X-Stage-Timings": timings_header},
+        ) from exc
     except Exception:
         SESSION_STORE.discard_turn(
             session.id, turn_index, allocation_token=alloc_token

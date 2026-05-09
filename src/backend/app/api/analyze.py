@@ -11,9 +11,9 @@ frozen — see `docs/submission-contract.md`. The heavy lifting lives in
     can pick the workspace up by `parent_id`.
 
 Workspace lifetime: the parent's temp dir survives until the session
-expires (TTL or LRU eviction). That trade — keeping ≤20 MiB per session
-in the OS temp dir for ~24 h — is what lets `/v1/follow-up` re-read the
-file without round-tripping through the network. Cleanup happens in
+expires (TTL or LRU eviction). The upload byte caps in `app.limits` keep
+that disk footprint bounded while letting `/v1/follow-up` re-read the file
+without round-tripping through the network. Cleanup happens in
 `app.session.store` when an entry is evicted.
 
 The internal `/spreadsheet/analyze` route (PR #3.5) is unaffected — it
@@ -35,7 +35,7 @@ from app.analyze.handler import (
     handle_analyze,
 )
 from app.analyze.schema import AnalyzeResponse
-from app.analyze.stages import bind_stage_timer, serialize_header
+from app.analyze.stages import StageTimer, bind_stage_timer, serialize_header
 from app.limits import UPLOAD_MAX_BYTES, UPLOAD_MAX_FILES, UPLOAD_MAX_TOTAL_BYTES
 from app.persistence import get_session_recorder
 from app.session import (
@@ -200,6 +200,14 @@ async def analyze(
             sampling_note=clean_note,
             extra_filenames=tuple(extra_filenames),
         )
+        # `bind_stage_timer()` is a contextmanager so the `as timer`
+        # binding only happens once it succeeds. Initialise to None
+        # outside the try so pyright understands the except clause's
+        # reference is well-defined; in practice the timer is always
+        # bound by the time AnalyzeFailure can be raised, but the
+        # fallback `serialize_header(timer)` still works (it accepts
+        # an empty StageTimer).
+        timer: StageTimer | None = None
         try:
             with bind_stage_timer() as timer:
                 analyze_response = await handle_analyze(
@@ -207,7 +215,18 @@ async def analyze(
                 )
             response.headers["X-Stage-Timings"] = serialize_header(timer)
         except AnalyzeFailure as exc:
-            raise HTTPException(exc.status_code, str(exc)) from exc
+            # Forward stage timings on the error path too — the eval renderer
+            # needs to know which stage died on a 422/502, otherwise root-cause
+            # analysis on a failed case requires re-running with a backend log
+            # capture (which start.sh did not always do). FastAPI does not
+            # propagate `response.headers` to the HTTPException response, so
+            # set them on the exception itself.
+            timings_header = serialize_header(timer) if timer is not None else "{}"
+            raise HTTPException(
+                exc.status_code,
+                str(exc),
+                headers={"X-Stage-Timings": timings_header},
+            ) from exc
 
         # Register the session so /v1/follow-up can pick it up. We do
         # this *before* the early-return so even refused parents are

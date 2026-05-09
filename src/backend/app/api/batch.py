@@ -33,6 +33,7 @@ from fastapi import APIRouter, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 
 from app.batch import BatchTask, ManifestError, parse_manifest, render_xlsx, run_batch
+from app.batch.official_output import render_official_bundle
 from app.limits import UPLOAD_MAX_BYTES
 from app.spreadsheet.llm import HttpChatClient, LLMConfig, LLMConfigError
 
@@ -112,7 +113,8 @@ async def batch(
 
         saved_names: set[str] = set()
         for upload in files:
-            name = _safe_filename(upload.filename or "")
+            raw_name = upload.filename or ""
+            name = _safe_filename(raw_name)
             if not name:
                 continue  # blank slot from the multipart form
             if name not in referenced_names:
@@ -155,14 +157,51 @@ async def batch(
         )
 
         # --- 5. Render + stream ---
-        xlsx_bytes = render_xlsx(results)
+        # Output format follows the input dialect: official-format
+        # manifests (any task carrying `user_query` / `type` /
+        # `parent_id`) get the §5.2 zip bundle (predictions.jsonl +
+        # reports/ + MANIFEST.txt) so the operator can drop it
+        # straight into the grader's offline-fallback ingestion.
+        # Native-dialect manifests get the xlsx that's been the
+        # default since PR #16.
+        is_official = any(
+            t.task_type != "standard_analysis" or t.parent_id is not None
+            for t in tasks
+        ) or any(
+            # Even a pure standard_analysis manifest looks "official"
+            # if the row labels match the organizer's id pattern
+            # (`eval_*`). This keeps a manifest the grader actually
+            # uploaded from accidentally getting xlsx output just
+            # because no follow_up / unanswerable was in it.
+            t.id.startswith(("eval_analysis_", "eval_follow_", "eval_trap_"))
+            for t in tasks
+        )
         error_count = sum(1 for r in results if r.status != "ok")
+        skipped_count = sum(1 for r in results if r.status == "skipped")
+        if is_official:
+            zip_bytes = render_official_bundle(results)
+            headers = {
+                "Content-Disposition": (
+                    'attachment; filename="predictions.zip"'
+                ),
+                "X-Batch-Tasks": str(len(results)),
+                "X-Batch-Errors": str(error_count),
+                "X-Batch-Skipped": str(skipped_count),
+                "X-Batch-Format": "official-zip",
+            }
+            return StreamingResponse(
+                iter([zip_bytes]),
+                media_type="application/zip",
+                headers=headers,
+            )
+        xlsx_bytes = render_xlsx(results)
         headers = {
             "Content-Disposition": (
                 'attachment; filename="tabletalker-batch-results.xlsx"'
             ),
             "X-Batch-Tasks": str(len(results)),
             "X-Batch-Errors": str(error_count),
+            "X-Batch-Format": "native-xlsx",
         }
         return StreamingResponse(
             iter([xlsx_bytes]),

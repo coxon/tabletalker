@@ -427,19 +427,22 @@ def test_analyze_refusal_still_emits_header(
     truth ("the LLM stages were skipped because we refused"). We surface
     a small `stages` dict instead.
     """
-    # No stub — the refusal heuristic must fire on the keyword and
-    # short-circuit before any LLM call.
+    # PR #22: refusal is now LLM-driven. Stub the planner LLM to emit a
+    # Cat 1 refuse op so the handler short-circuits and finalize is
+    # skipped (only one LLM call, no second response needed).
+    refuse_plan = (
+        '{"ops":[{"kind":"refuse","out":"_r","category":1,'
+        '"narrative":"数据集中不包含「Race」字段，无法基于现有字段对该维度进行分析。"}],'
+        '"answer":"_r"}'
+    )
     monkeypatch.setattr(
-        api_module, "HttpChatClient", lambda config: _SequencedStubClient([])
+        api_module, "HttpChatClient", lambda config: _SequencedStubClient([refuse_plan])
     )
 
     csv = b"name,salary\nA,100\nB,200\n"
     response = client.post(
         "/v1/analyze",
         files={"file": ("emp.csv", csv, "text/csv")},
-        # English token "race" exercises the ASCII branch of
-        # `_detect_refusal` (whole-token match). The CJK substring branch
-        # ("按种族分析") is covered separately in test_analyze_api.
         data={"question": "Show purchase rate by race"},
     )
     assert response.status_code == 200, response.text
@@ -448,11 +451,13 @@ def test_analyze_refusal_still_emits_header(
     raw = response.headers.get("X-Stage-Timings")
     assert raw, "refusal must still publish a stage-timings header"
     payload = json.loads(raw)
-    # Refusal records `profile` (we read the file before the trap fires).
-    # plan/execute/finalize must NOT be present — this is the renderer's
-    # signal that the turn was a refusal even before reading is_refusal.
+    # Refusal records `profile` (we read the file before the LLM call).
+    # The `plan_llm` stage now DOES fire (the LLM was called and emitted
+    # a refuse op), but `execute` / `finalize_llm` must remain absent —
+    # the handler short-circuits on refuse.
     assert "profile" in payload["stages"]
-    assert "plan_llm" not in payload["stages"]
+    assert "plan_llm" in payload["stages"]
+    assert "execute" not in payload["stages"]
     assert "finalize_llm" not in payload["stages"]
     # Round-9 (CodeRabbit #14): refusal *does* render HTML
     # (`docs/refusal-policy.md` §carry-through), so the `render`
@@ -480,10 +485,18 @@ def test_follow_up_carry_through_emits_empty_stages_header(
     must be present with an empty `stages` dict (truthful: zero work
     done) and no `plan_llm` / `finalize_llm` keys.
     """
-    monkeypatch.setattr(
-        api_module, "HttpChatClient", lambda config: _SequencedStubClient([])
+    # PR #22: keyword classifier removed — stub the planner LLM to emit
+    # a refuse op so the parent analyze refuses without burning a finalize
+    # stub. Follow-up uses the carry-through branch and needs zero LLM
+    # calls of its own.
+    refuse_plan = (
+        '{"ops":[{"kind":"refuse","out":"_r","category":1,'
+        '"narrative":"数据集中不包含「Race」字段，无法基于现有字段对该维度进行分析。"}],'
+        '"answer":"_r"}'
     )
-    # Seed a refused session with the same trap word as the analyze test.
+    monkeypatch.setattr(
+        api_module, "HttpChatClient", lambda config: _SequencedStubClient([refuse_plan])
+    )
     csv = b"name,salary\nA,100\nB,200\n"
     r = client.post(
         "/v1/analyze",

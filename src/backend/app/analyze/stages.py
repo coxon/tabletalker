@@ -46,7 +46,7 @@ STAGE_ORDER: tuple[str, ...] = (
     "profile",          # parse + type inference
     "preview_plan_req", # 5-row preview + PlanRequest assembly
     "plan_llm",         # planner LLM round-trip
-    "execute",          # sandboxed op execution
+    "execute",          # local typed-op execution
     "evidence",         # evidence row build
     "finalize_llm",     # finalize narrative LLM round-trip
     "render",           # Jinja HTML + chart pick + assemble response

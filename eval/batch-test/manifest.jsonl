@@ -1,0 +1,13 @@
+{"file": "01_ibm_attrition.csv", "question": "哪些岗位（JobRole）的离职率（Attrition=Yes 占比）最高？请给出 top 3 并说明可能的差异来源。"}
+{"file": "01_ibm_attrition.csv", "question": "加班（OverTime）与离职率的关系如何？"}
+{"file": "01_ibm_attrition.csv", "question": "请按种族（Race）分析离职率。"}
+{"file": "02_superstore_sales.csv", "question": "哪个商品子类别（Sub-Category）的销售额（Sales）总和最高？请给出 top 5。"}
+{"file": "02_superstore_sales.csv", "question": "不同地区（Region）的销售额分布如何？"}
+{"file": "02_superstore_sales.csv", "question": "请按客户的种族分析消费偏好。"}
+{"file": "03_tmdb_movies.csv", "question": "按原始语言（original_language）分组，平均评分（vote_average）最高的前 5 种语言是什么？"}
+{"file": "03_tmdb_movies.csv", "question": "预算（budget）与平均评分（vote_average）之间是否存在显著相关性？"}
+{"file": "03_tmdb_movies.csv", "question": "请按导演个人评分排序电影，谁的平均分最高？"}
+{"file": "04_telecom_churn.csv", "question": "请按用户的民族（ethnicity）分析流失率。", "sampling_rate": 0.25}
+{"file": "05_shopping_behavior.csv", "question": "哪些品类（Category）的平均消费金额（Purchase Amount (USD)）最高？请给出 top 3。"}
+{"file": "05_shopping_behavior.csv", "question": "不同性别（Gender）和支付方式（Payment Method）的偏好差异？"}
+{"file": "05_shopping_behavior.csv", "question": "请按客户种族分析购物频率。"}
