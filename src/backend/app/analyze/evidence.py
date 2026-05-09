@@ -230,20 +230,17 @@ _BINOP_RENDER = {
 
 
 # Functions `pandas.eval` / `DataFrame.query` accept directly during
-# grader replay — these go through verbatim in the rendered evidence
-# string. Other DSL-allowed functions (`lower`, `upper`, `len`, `if`)
-# are tolerated by the executor but pandas.eval can't run them as-is;
-# the renderer downgrades them to a safe "fn(...)" string form so the
-# evidence row stays human-readable without crashing the response.
+# grader replay. Anything outside this set raises during evidence
+# rendering — see `_render_expr` for the rationale (a non-replayable
+# filter would make the grader judge the finding's `value` as
+# fabricated and score the row 0).
 _CALL_RENDER_ALLOWED = frozenset({"abs", "round", "min", "max"})
-# Allowed by the DSL but rendered as best-effort labels rather than
-# pandas.eval-replay text. A grader that strictly replays will note the
-# function is unrunnable but the surrounding `(dataset, columns,
-# filters, aggregation, value, row_count)` tuple still documents what
-# the system computed — and the `value` itself is the typed-op result,
-# not a re-evaluation of this string. Mirrors the DSL function set in
-# `app/spreadsheet/expr.py::_FUNCTIONS`.
-_CALL_RENDER_FALLBACK = frozenset({"lower", "upper", "len", "if"})
+# DSL-allowed function names that aren't safe to render verbatim
+# because pandas.eval can't run them. Tracked here to make the
+# guardrail in `_render_expr` self-documenting; the planner system
+# prompt warns against using them inside filter / add_column
+# expressions whose output flows into evidence.
+_CALL_RENDER_UNREPLAYABLE = frozenset({"lower", "upper", "len", "if"})
 
 
 def _render_expr(expr: Expr) -> str:
@@ -260,16 +257,25 @@ def _render_expr(expr: Expr) -> str:
         rendered = ", ".join(_render_expr(a) for a in expr.args)
         if expr.fn in _CALL_RENDER_ALLOWED:
             return f"{expr.fn}({rendered})"
-        if expr.fn in _CALL_RENDER_FALLBACK:
-            # DSL-allowed but pandas.eval can't run as-is. Render with a
-            # leading `~` marker so it's visually distinct from a
-            # replay-faithful call. The Evidence's `value` is still the
-            # typed-op result; this string only documents the operation.
-            return f"~{expr.fn}({rendered})"
-        # Unknown function — DSL validator should have caught it, but
-        # if a future op kind grows new function names this defensive
-        # branch keeps the response from 500-ing on an unreachable cell.
-        return f"~{expr.fn}({rendered})"
+        # Functions in `_CALL_RENDER_FALLBACK` (or any unknown function
+        # the DSL might grow) cannot be replayed by `pandas.eval` /
+        # `DataFrame.query`. The grader replays each Evidence row's
+        # `(filters, aggregation)` to verify the `value` we reported;
+        # an unrenderable filter string makes that replay fail and the
+        # finding gets scored 0 (赛题4 §3.2 evidence 真实性). Earlier
+        # this branch returned a `~fn(...)` "documentary" string that
+        # documented what we computed but was not replay-faithful.
+        # CodeRabbit pointed out the grader-failure risk; raising here
+        # propagates as a finalize / evidence-builder error so we never
+        # ship an Evidence row whose filter the grader cannot run.
+        raise ValueError(
+            f"call to {expr.fn!r} is not pandas.eval-renderable; "
+            f"allowed: {sorted(_CALL_RENDER_ALLOWED)}. "
+            "Planner must avoid string / boolean function calls inside "
+            "filter / add_column expressions when the result feeds an "
+            "Evidence row, because the grader replays the rendered "
+            "string with pandas.eval."
+        )
     # Closed union — defensive fallback in case Expr grows a new branch
     # and someone forgets to update us.
     raise TypeError(f"unrenderable expression: {type(expr).__name__}")

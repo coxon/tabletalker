@@ -15,9 +15,39 @@ import {
 } from "lucide-react";
 
 function batchEndpoint(): string {
-  if (typeof window === "undefined") return "/api/batch";
-  const backendPort = window.location.port === "3000" ? "8000" : window.location.port;
-  return `${window.location.protocol}//${window.location.hostname}:${backendPort}/v1/batch`;
+  // Always hit the same-origin proxy — `next.config.mjs` rewrites
+  // `/api/batch` → `{BACKEND_URL}/v1/batch`, so the browser never
+  // needs to know which port the backend actually runs on. The
+  // earlier hard-coded `:8000` assumption broke two real scenarios:
+  // (1) deploys served on port 80/443 where `window.location.port`
+  // is `""` produced malformed URLs like `https://host:/v1/batch`,
+  // and (2) deploys fronted by a reverse proxy that terminates TLS
+  // never expose `:8000` publicly. CodeRabbit fix on PR #21.
+  return "/api/batch";
+}
+
+function extractFilename(
+  contentDisposition: string | null,
+  formatHeader: string | null,
+): string {
+  // Prefer the server's own Content-Disposition — it already picked
+  // the right extension for the payload it streamed back. Match the
+  // standard `filename="..."` form plus the RFC 5987 `filename*=UTF-8''...`
+  // form. Fall back to the format header when Content-Disposition is
+  // missing (local dev proxies occasionally strip it) and finally to
+  // a generic name.
+  if (contentDisposition) {
+    const utf8Match = contentDisposition.match(
+      /filename\*=UTF-8''([^;]+)/i,
+    );
+    if (utf8Match) return decodeURIComponent(utf8Match[1]);
+    const quotedMatch = contentDisposition.match(/filename="([^"]+)"/i);
+    if (quotedMatch) return quotedMatch[1];
+    const unquotedMatch = contentDisposition.match(/filename=([^;]+)/i);
+    if (unquotedMatch) return unquotedMatch[1].trim();
+  }
+  if (formatHeader === "official-zip") return "predictions.zip";
+  return "tabletalker-batch-results.xlsx";
 }
 
 type Phase =
@@ -106,11 +136,23 @@ export default function V2BatchPage() {
         10,
       );
 
+      // Derive the download filename from Content-Disposition if present,
+      // otherwise fall back to a sensible extension by format header. The
+      // hard-coded `.xlsx` used to save the official-format zip bundle
+      // under the wrong extension, leaving evaluators with a file the OS
+      // couldn't open. Backend sends:
+      //   X-Batch-Format: native-xlsx  → tabletalker-batch-results.xlsx
+      //   X-Batch-Format: official-zip → predictions.zip
+      // CodeRabbit fix on PR #21.
+      const filename = extractFilename(
+        response.headers.get("content-disposition"),
+        response.headers.get("x-batch-format"),
+      );
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "tabletalker-batch-results.xlsx";
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       a.remove();

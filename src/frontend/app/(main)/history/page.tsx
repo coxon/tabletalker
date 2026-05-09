@@ -95,10 +95,12 @@ export default function V2HistoryPage() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchSessions(query, statusFilter);
-  }, [fetchSessions, statusFilter]);
-
+  // Single effect for all fetch triggers. Query changes debounce
+  // (typing-through-the-search-bar shouldn't fire a request per
+  // keystroke); status filter changes fetch immediately (clicking a
+  // chip should feel instant). Previously two separate effects fired
+  // on status change — one immediately and one debounced — racing and
+  // wasting a request. CodeRabbit finding on PR #21.
   useEffect(() => {
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
@@ -106,6 +108,15 @@ export default function V2HistoryPage() {
     }, 300);
     return () => clearTimeout(debounceRef.current);
   }, [query, fetchSessions, statusFilter]);
+
+  useEffect(() => {
+    // Immediate fire on status-filter change (skip the debounce) —
+    // run once on mount and once per filter toggle. The debounced
+    // effect above handles the typing case.
+    clearTimeout(debounceRef.current);
+    fetchSessions(query, statusFilter);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter]);
 
   const handleDelete = useCallback(
     async (id: string) => {

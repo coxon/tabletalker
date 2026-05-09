@@ -193,11 +193,19 @@ class _HttpcoreTransport(httpx.AsyncBaseTransport):
         # Content-Length, plus our auth/content-type. Pass it through to
         # httpcore unchanged so we don't accidentally re-add headers,
         # double-encode, or drop ones httpx generated.
+        #
+        # `request.extensions` carries the per-request timeout config
+        # httpx assembled from `AsyncClient(timeout=...)`. Without
+        # forwarding it, httpcore uses its own much-shorter defaults and
+        # `LLM_TIMEOUT_S` is silently ignored — a long-running planner
+        # call would 504 at httpcore's level instead of honouring the
+        # 300s we configured. CodeRabbit fix on PR #21.
         resp = await self._pool.request(
             request.method.encode(),
             str(request.url).encode(),
             headers=list(request.headers.raw),
             content=body,
+            extensions=request.extensions,
         )
         # httpcore's Response carries `content` as bytes; httpx will
         # re-decode for `.text` / `.json()` based on the Content-Type

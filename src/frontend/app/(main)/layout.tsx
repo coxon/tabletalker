@@ -53,9 +53,9 @@ export default async function V2Layout({ children }: { children: ReactNode }) {
           <p className="text-xs text-slate-500 mb-3 leading-relaxed">
             上传数据并提出你的问题，TableTalker 将自动完成分析并生成可验证的报告。
           </p>
-          <button className="text-xs bg-white border border-indigo-200 px-3 py-1.5 rounded-md hover:bg-indigo-50 w-fit flex items-center gap-1 transition-colors">
-            使用指南 →
-          </button>
+          {/* "使用指南" 按钮位已移除 — 原控件是死链接 (CodeRabbit
+               finding on PR #21). 使用文档先挂到 README，上线后再考虑
+               是否独立 /help 页。 */}
         </div>
       </aside>
 

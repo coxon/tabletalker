@@ -42,7 +42,16 @@ export default function V2AnalyzePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isBusy = phase.name === "uploading" || phase.name === "analyzing" || phase.name === "follow_up";
+  // Original analysis drives UI-level checks: "has anything been analyzed
+  // yet?", "was the first turn refused?" (if so all follow-ups are
+  // refused too, per docs/refusal-policy.md). The id used for the next
+  // follow-up is a SEPARATE concept — see `followUpParentId` below —
+  // because /v1/follow-up needs to chain onto the most recent response
+  // to carry findings / cohorts / chart anchors forward. Using turns[0]
+  // for the follow-up parent_id dropped multi-turn context on the
+  // second + subsequent follow-ups (CodeRabbit finding on PR #21).
   const parent = turns[0]?.response ?? null;
+  const followUpParentId = turns[turns.length - 1]?.response?.id ?? null;
 
   const handleFileDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -106,7 +115,7 @@ export default function V2AnalyzePage() {
   };
 
   const submitFollowUp = async () => {
-    if (!parent) return;
+    if (!parent || !followUpParentId) return;
     const trimmed = question.trim();
     if (!trimmed) return;
     setPhase({ name: "follow_up" });
@@ -114,7 +123,12 @@ export default function V2AnalyzePage() {
       const response = await fetch("/api/follow-up", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ parent_id: parent.id, question: trimmed }),
+        // parent_id = most recent turn's id (not the original turns[0]).
+        // The backend's session store carries forward findings, cohort
+        // definitions, and chart anchors from the direct parent, so a
+        // second follow-up referencing "that group" means the cohort
+        // named in turn 2, not turn 1.
+        body: JSON.stringify({ parent_id: followUpParentId, question: trimmed }),
       });
       if (!response.ok) {
         const message = await readError(response);

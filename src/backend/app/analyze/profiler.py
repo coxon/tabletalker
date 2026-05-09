@@ -212,11 +212,14 @@ def _profile_column(df: pd.DataFrame, name: str) -> ColumnProfile:
 
     top_values = _top_values(series, kind, high_card)
     minimum, maximum = _numeric_extents(series, kind)
-    # Sniff for JSON-encoded data only on text-like columns. Other dtype
-    # kinds (numeric/datetime/boolean/categorical-with-low-cardinality)
-    # can't have hidden JSON structure inside a single cell, so the cost
-    # of running `json.loads` on every column is wasted there.
-    json_shape = _detect_json_shape(series) if kind == "text" else None
+    # Sniff for JSON-encoded data on any string-bearing column. Gating on
+    # `kind == "text"` alone misses low-cardinality string columns that
+    # `_classify_dtype` labels `"categorical"` — e.g., TMDB `original_language`
+    # is categorical but `spoken_languages` (also on TMDB) is an object-dtype
+    # JSON string column that happens to have few distinct values. Check the
+    # underlying dtype + (for Categorical) the categories' dtype so we cover
+    # both. CodeRabbit fix on PR #21.
+    json_shape = _detect_json_shape(series) if _is_string_like(series) else None
 
     return ColumnProfile(
         name=name,
@@ -306,6 +309,26 @@ def _numeric_extents(
     if not math.isfinite(mn) or not math.isfinite(mx):
         return None, None
     return mn, mx
+
+
+def _is_string_like(series: pd.Series) -> bool:
+    """True when the column carries text-shaped cells, regardless of how
+    `_classify_dtype` labels it for the planner.
+
+    Needed because the dtype-kind label is user-facing ("categorical"
+    / "text") and biased toward reader comprehension, while JSON
+    detection needs to peek at any column whose *underlying* storage is
+    string-shaped — including low-cardinality strings that get called
+    "categorical" by our label + pandas `CategoricalDtype` whose
+    `.categories` are strings. CodeRabbit fix on PR #21.
+    """
+
+    dtype = series.dtype
+    if pd.api.types.is_object_dtype(dtype) or pd.api.types.is_string_dtype(dtype):
+        return True
+    if isinstance(dtype, pd.CategoricalDtype):
+        return pd.api.types.is_string_dtype(dtype.categories.dtype)
+    return False
 
 
 def _detect_json_shape(series: pd.Series) -> JsonShape | None:

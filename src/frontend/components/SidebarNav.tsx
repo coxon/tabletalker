@@ -24,10 +24,14 @@ export function SidebarNav() {
   return (
     <nav className="flex-1 px-4 space-y-1">
       {NAV_ITEMS.map((item) => {
+        // Exact match or strict child path (`/reports` must not match
+        // `/reports-archive`). CodeRabbit finding on PR #21: bare
+        // `pathname.startsWith(item.href)` false-matched same-prefix
+        // siblings — e.g. a future `/reports-snapshot` route would
+        // light the `/reports` nav item.
         const isActive =
-          item.href === "/"
-            ? pathname === "/"
-            : pathname.startsWith(item.href);
+          pathname === item.href ||
+          (item.href !== "/" && pathname.startsWith(item.href + "/"));
 
         return (
           <Link
