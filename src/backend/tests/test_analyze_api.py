@@ -1009,7 +1009,13 @@ def test_analyze_multi_file_refusal_unions_columns(
     # no private-symbol setattr. The `register_trap_keyword` helper still
     # exists as the *production* seam (e.g., a future plug-in registers
     # a domain-specific category at startup); tests don't need it.
-    monkeypatch.setitem(handler_module._TRAP_KEYWORDS, "区域名", ("region_name",))
+    #
+    # PR #22 removed `_TRAP_KEYWORDS` — this test is skip-marked above.
+    # `getattr` keeps pyright from complaining about the (now-missing)
+    # attribute reference on the still-imported handler_module.
+    trap_kw = getattr(handler_module, "_TRAP_KEYWORDS", None)
+    if trap_kw is not None:
+        monkeypatch.setitem(trap_kw, "区域名", ("region_name",))
 
     stub = _SequencedStubClient([_multi_file_plan_json(), _narrative_json()])
     monkeypatch.setattr(api_module, "HttpChatClient", lambda config: stub)

@@ -25,7 +25,7 @@ from __future__ import annotations
 import math
 import os
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 import httpcore
 import httpx
@@ -179,8 +179,14 @@ class _HttpcoreTransport(httpx.AsyncBaseTransport):
     async def handle_async_request(
         self, request: httpx.Request
     ) -> httpx.Response:
+        # `request.stream` is typed as `SyncByteStream | AsyncByteStream`
+        # in httpx's stubs; pyright can't narrow at type-check time.
+        # In practice we're inside `AsyncBaseTransport.handle_async_request`,
+        # so the stream is async-iterable. Cast through the AsyncByteStream
+        # protocol so the type checker accepts the async iteration.
+        stream = cast(httpx.AsyncByteStream, request.stream)
         body = b""
-        async for chunk in request.stream:
+        async for chunk in stream:
             body += chunk
         # `request.headers.raw` is the canonical list of `(bytes, bytes)`
         # pairs httpx assembles for the wire — already includes Host,

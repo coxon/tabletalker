@@ -57,7 +57,11 @@ def handle_explode_json(op: ExplodeJsonOp, ctx: SpreadsheetContext) -> OpResult:
         # dict). Lists become lists-of-extracted-values; dicts collapse to
         # a single scalar; failures (missing key, wrong shape) become None
         # and are dropped on explode.
-        parsed = parsed.apply(lambda v: _extract_field(v, op.extract))
+        # Bind to a local so pyright sees `extract_field: str` inside the
+        # lambda — `op.extract` is `str | None` and the type narrowing
+        # from the `is not None` check above doesn't follow the closure.
+        extract_field: str = op.extract
+        parsed = parsed.apply(lambda v: _extract_field(v, extract_field))
 
     df = src.copy()
     df[op.column] = parsed
