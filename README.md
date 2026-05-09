@@ -28,11 +28,8 @@
 | 追问成功率 / 上下文继承 | 100% · 100% |
 | P50 / P95 端到端 | 21.4s / 25.6s |
 
-![客观项 100/100 构成](docs/images/score_breakdown.svg)
-
-完整 9 节官方格式报告见
-[`自测报告/latest_evaluation_metrics.md`](自测报告/latest_evaluation_metrics.md)，
-所有数字来自真实评测运行，未手填。
+完整报告见
+[`自测报告/latest_evaluation_metrics.md`](自测报告/latest_evaluation_metrics.md)
 
 ---
 
