@@ -309,6 +309,13 @@ def _to_task(obj: dict, *, row_label: str, index: int) -> BatchTask:
     # guessed.
     if "file" not in obj or not obj.get("file"):
         files_field = obj.get("files")
+        # CSV cells arrive as strings even when the header says `files`;
+        # accept the same `;` / `,` separation as `extra_files` so an
+        # official-format CSV row like `files: a.csv;b.csv` resolves
+        # correctly. JSONL rows with a real `list` skip this branch.
+        # CodeRabbit fix on PR #21.
+        if isinstance(files_field, str):
+            files_field = _split_extra(files_field)
         if isinstance(files_field, list) and files_field:
             primary = str(files_field[0]).strip()
             extras_from_files = files_field[1:]

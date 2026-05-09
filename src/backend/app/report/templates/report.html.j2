@@ -348,11 +348,21 @@
       <div class="chart-body">
 {% if chart.echarts_option %}
         <div id="{{ chart.anchor_id }}-c" style="width:100%;height:400px;"></div>
+        {# CodeRabbit XSS finding: don't splice `chart.echarts_option`
+           into JS source; titles / axis labels come from uploaded CSVs and
+           a `</script>` literal in any of them would close this tag and
+           execute injected code. Embed as JSON in a non-executing
+           `<script type="application/json">` block, then `JSON.parse` at
+           runtime. The renderer (`charts.py`) also escapes `<>&` to
+           Unicode entities so even a stray `</script>` in the data text
+           can't break out of the JSON island. #}
+        <script type="application/json" id="{{ chart.anchor_id }}-data">{{ chart.echarts_option|safe }}</script>
         <script>
           (function(){
             var el=document.getElementById('{{ chart.anchor_id }}-c');
+            var raw=document.getElementById('{{ chart.anchor_id }}-data').textContent;
             var c=echarts.init(el);
-            c.setOption({{ chart.echarts_option|safe }});
+            c.setOption(JSON.parse(raw));
             window.addEventListener('resize',function(){c.resize();});
           })();
         </script>

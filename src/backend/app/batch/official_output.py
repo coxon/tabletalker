@@ -52,6 +52,14 @@ def render_official_bundle(
     written with `summary` documenting the skip and `is_refusal=false`,
     so the grader's "is this a refusal?" check doesn't double-count
     skipped follow-ups as refused.
+
+    File layout uses the manifest `task.id` as the key everywhere:
+    `predictions.jsonl` rows carry `id == task.id`, `report_html_url`
+    points at `reports/{task.id}.html`, and the HTML files in the
+    archive are named `{task.id}.html`. The internal eval-only id
+    (`response.id`, e.g. `eval_analysis_<hex>`) is dropped from the
+    bundle entirely — it would only confuse the grader, who expects
+    one consistent id per task. (CodeRabbit fix on PR #21.)
     """
 
     buf = io.BytesIO()
@@ -78,6 +86,9 @@ def render_official_bundle(
         )
         # reports/: one per ok / error result that produced HTML. Skipped
         # tasks contribute no file because there's nothing to render.
+        # Filename is `{task.id}.html` so it lines up with the
+        # `report_html_url` we wrote into predictions.jsonl above; the
+        # internal `response.id` is irrelevant to the grader.
         for result in results:
             if result.status != "ok" or result.response is None:
                 continue
@@ -85,7 +96,7 @@ def render_official_bundle(
             if html is None:
                 continue
             zf.writestr(
-                f"{archive_name}/reports/{result.response.id}.html",
+                f"{archive_name}/reports/{result.task.id}.html",
                 html,
             )
     return buf.getvalue()
@@ -131,13 +142,15 @@ def _result_to_prediction(result: BatchResult) -> dict:
 
     task_id = result.task.id
     if result.status == "ok" and result.response is not None:
-        # Pass through the AnalyzeResponse but force `id` to the
-        # manifest task id (the response carries an internal
-        # `eval_analysis_*` id that's not what the official jsonl is
-        # keyed on). This is the explicit contract: predictions.jsonl
-        # rows match the requirements jsonl by `id`.
+        # Pass through the AnalyzeResponse but rewrite both `id` and
+        # `report_html_url` so the bundle is internally consistent: the
+        # grader keys by task.id, and the HTML in reports/ is also
+        # named after task.id (see render_official_bundle below). The
+        # internal eval id (response.id) is dropped because it has no
+        # meaning to the grader.
         body = result.response.model_dump(mode="json")
         body["id"] = task_id
+        body["report_html_url"] = f"reports/{task_id}.html"
         return body
 
     # Failure / skip share the same shape — empty findings/charts/recs,

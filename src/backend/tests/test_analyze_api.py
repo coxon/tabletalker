@@ -18,6 +18,8 @@ import app.analyze.handler as handler_module
 import app.api.analyze as api_module
 from app.main import app
 
+_PR22_SKIP = "PR #22 removed _TRAP_KEYWORDS; refusal is now LLM-driven (refuse op)"
+
 
 class _SequencedStubClient:
     """Returns the next pre-baked response on each `chat()` call.
@@ -173,7 +175,7 @@ def test_analyze_returns_contract_shape(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(reason="PR #22 removed _TRAP_KEYWORDS / _detect_refusal; refusal is now LLM-driven via refuse op")
+@pytest.mark.skip(reason=_PR22_SKIP)
 def test_analyze_refuses_when_question_asks_for_missing_column(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -203,7 +205,7 @@ def test_analyze_refuses_when_question_asks_for_missing_column(
     assert "种族" in report.text
 
 
-@pytest.mark.skip(reason="PR #22 removed _TRAP_KEYWORDS / _detect_refusal; refusal is now LLM-driven via refuse op")
+@pytest.mark.skip(reason=_PR22_SKIP)
 def test_analyze_refuses_cjk_trap_question(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -554,7 +556,7 @@ def test_analyze_promotes_expr_missing_column_to_refusal(
         ("销售额按性别拆分", "性别"),
     ],
 )
-@pytest.mark.skip(reason="PR #22 removed _TRAP_KEYWORDS / _detect_refusal; refusal is now LLM-driven via refuse op")
+@pytest.mark.skip(reason=_PR22_SKIP)
 def test_analyze_refuses_expanded_trap_categories(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -584,7 +586,7 @@ def test_analyze_refuses_expanded_trap_categories(
     assert stub.calls == 0
 
 
-@pytest.mark.skip(reason="PR #22 removed _TRAP_KEYWORDS / _detect_refusal; refusal is now LLM-driven via refuse op")
+@pytest.mark.skip(reason=_PR22_SKIP)
 def test_analyze_does_not_refuse_when_trap_column_exists(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -657,7 +659,7 @@ def test_analyze_does_not_refuse_when_trap_column_exists(
         ("Group orders by religion", "CustomerFaith"),
     ],
 )
-@pytest.mark.skip(reason="PR #22 removed _TRAP_KEYWORDS / _detect_refusal; refusal is now LLM-driven via refuse op")
+@pytest.mark.skip(reason=_PR22_SKIP)
 def test_analyze_does_not_refuse_across_synonym_boundaries(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -708,7 +710,7 @@ def test_analyze_does_not_refuse_across_synonym_boundaries(
         ("Customers by race", "racetrack_id"),
     ],
 )
-@pytest.mark.skip(reason="PR #22 removed _TRAP_KEYWORDS / _detect_refusal; refusal is now LLM-driven via refuse op")
+@pytest.mark.skip(reason=_PR22_SKIP)
 def test_analyze_does_not_refuse_on_short_alias_false_positive(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -988,7 +990,7 @@ def test_analyze_multi_file_join_happy_path(
     assert ("(region_name == 'North China')", 75) in sums
 
 
-@pytest.mark.skip(reason="PR #22 removed _TRAP_KEYWORDS / _detect_refusal; refusal is now LLM-driven via refuse op")
+@pytest.mark.skip(reason=_PR22_SKIP)
 def test_analyze_multi_file_refusal_unions_columns(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -30,7 +30,28 @@ from app.spreadsheet.llm import ChatClient
 
 logger = logging.getLogger(__name__)
 
-_CONCURRENCY = int(os.environ.get("BATCH_CONCURRENCY", "4"))
+def _resolve_concurrency() -> int:
+    """Read `BATCH_CONCURRENCY` from env with a graceful fallback.
+
+    A bare `int(...)` would crash module import if the env var carried
+    a non-numeric value (`"auto"`, `"4 "`, accidental shell quotes,
+    etc.) — a single malformed deploy var would 500 the entire batch
+    route on first import. Clamp to ≥1 and fall back to 4 on parse
+    failure. CodeRabbit fix on PR #21.
+    """
+
+    raw = os.environ.get("BATCH_CONCURRENCY", "4")
+    try:
+        return max(1, int(raw))
+    except (TypeError, ValueError):
+        logger.warning(
+            "BATCH_CONCURRENCY=%r is not a positive integer; falling back to 4",
+            raw,
+        )
+        return 4
+
+
+_CONCURRENCY = _resolve_concurrency()
 
 
 @dataclass

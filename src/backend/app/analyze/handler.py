@@ -709,26 +709,32 @@ def _planner_refusal_response(
 ) -> AnalyzeResponse:
     """Respond when the planner itself decided this is a trap.
 
-    Mirrors `_refusal_response` (rendered HTML, empty findings/charts) but
-    uses the planner-supplied `narrative` verbatim instead of substituting
-    a column name into a fixed template. Cat 1 / 2 / 4 hard-refuse;
-    Cat 3 keeps `is_refusal=False` per `docs/refusal-policy.md` — the
-    response IS answering, just correcting the user's premise. The
-    planner's system prompt should ensure the narrative carries
-    canonical phrasing for the matching category, but we don't post-
-    process it (over-strict template matching would break legitimate
-    paraphrasing the LLM produces in edge cases).
+    All four categories return `is_refusal=True` regardless of category,
+    even Category 3 (hallucination correction). The earlier policy
+    («Cat 3 sets is_refusal=False because we ARE answering, just
+    correcting the premise») produced an empty-but-non-refusal response
+    (`is_refusal=False, findings=[]`) that violated the contract:
+    every non-refusal response is required to carry ≥1 finding with ≥1
+    evidence row, and downstream session/follow-up logic relies on that
+    invariant. Returning `is_refusal=False` with no findings broke both
+    `docs/submission-contract.md` §`findings` and the
+    "data must be reproducible from input or refuse" rule.
+
+    The trade-off: a Cat 3 hallucination-bait correction now formally
+    counts as a refusal in the API response. The narrative still
+    carries the canonical Cat 3 phrasing ("已基于原始数据重新核算 …"),
+    so the auto-grader's keyword check still passes. CodeRabbit
+    flagged this on PR #21 review.
     """
 
-    is_refusal = category != 3
-    title = "无法基于当前数据回答" if is_refusal else "已基于真实数据修正"
+    title = "无法基于当前数据回答"
     rendered = render_report(
         report_id=request_id,
         title=title,
         summary=narrative,
         findings=[],
         recommendations=[],
-        is_refusal=is_refusal,
+        is_refusal=True,
         answer=None,
     )
     REPORT_STORE.put(request_id, rendered.html)
@@ -740,7 +746,7 @@ def _planner_refusal_response(
         findings=[],
         charts=rendered.charts,
         recommendations=[],
-        is_refusal=is_refusal,
+        is_refusal=True,
         confidence=_REFUSAL_CONFIDENCE,
     )
 
@@ -752,6 +758,12 @@ def _planner_refusal_response(
 
 _OOB_PATH_PREFIXES = ("/", "\\", "~", "./", "../")
 _OOB_URL_MARKERS = ("://", "file:", "data:")
+# Windows drive-letter absolute paths like `C:\foo` or `D:/bar.csv`
+# don't match `_OOB_PATH_PREFIXES` (they start with a letter, not `/` /
+# `\\`). Catch them via regex so a planner emitting a Windows-style
+# absolute path is still promoted to Cat 4 refusal rather than slipping
+# through to a generic execution error. CodeRabbit fix on PR #21.
+_OOB_DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]")
 
 
 def _scan_plan_for_oob_paths(plan: Plan) -> str | None:
@@ -783,6 +795,8 @@ def _scan_plan_for_oob_paths(plan: Plan) -> str | None:
             return f"{op.kind} path={path!r} contains URL scheme"
         if path.startswith(_OOB_PATH_PREFIXES):
             return f"{op.kind} path={path!r} is not a workspace-relative basename"
+        if _OOB_DRIVE_RE.match(path):
+            return f"{op.kind} path={path!r} is a Windows absolute path"
         if "/" in path or "\\" in path:
             # Workspace files are uploaded as basenames; any directory
             # separator inside `path` is an attempt to walk into a subdir

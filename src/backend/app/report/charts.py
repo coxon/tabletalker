@@ -112,8 +112,37 @@ def build_chart(
         title=title,
         anchor_id=anchor_id,
         svg="",
-        echarts_option=json.dumps(option, ensure_ascii=False),
+        echarts_option=_html_safe_json(option),
         type_label=CHART_LABELS[kind],
+    )
+
+
+def _html_safe_json(option: dict) -> str:
+    """JSON-encode an ECharts option for safe embedding in an HTML page.
+
+    User-uploaded data flows into chart titles, axis labels, tooltip
+    formatters, etc. A literal `</script>` (or `</style>`, `<!--`) inside
+    any of those strings would, in a normal `json.dumps` output, slip
+    through the renderer's `<script>` block and let the browser execute
+    injected markup (CodeRabbit found this on PR #21). Two layers of
+    defence:
+
+      1. The template now embeds chart data in `<script type="application/json">`
+         and `JSON.parse`s it at runtime — non-executing context.
+      2. We additionally escape `<`, `>`, `&` to their `\\uXXXX` forms
+         here so even a `</script>` literal in the data can't terminate
+         the surrounding script tag in older browsers / non-strict HTML
+         parsers.
+
+    Both layers in combination match OWASP "Output encoding for HTML
+    contexts that contain JSON" guidance.
+    """
+
+    raw = json.dumps(option, ensure_ascii=False)
+    return (
+        raw.replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
     )
 
 
@@ -357,11 +386,18 @@ def _box_option(title: str, labels: list[str], values: list[float]) -> dict:
     if not finite:
         finite = [0.0]
     quartiles = _five_number_summary(finite)
+    # Standard Tukey outlier rule: a point lies beyond the *whiskers*
+    # when it sits outside `[Q1 - 1.5*IQR, Q3 + 1.5*IQR]`. The earlier
+    # formulation (CodeRabbit found) used `min` / `max` instead of Q1
+    # / Q3 — by definition no value is below min or above max, so no
+    # outliers ever appeared in the rendered chart.
+    iqr = quartiles[3] - quartiles[1]
+    lower_whisker = quartiles[1] - 1.5 * iqr
+    upper_whisker = quartiles[3] + 1.5 * iqr
     outliers = [
         [0, v]
         for v in finite
-        if v < quartiles[0] - 1.5 * (quartiles[3] - quartiles[1])
-        or v > quartiles[4] + 1.5 * (quartiles[3] - quartiles[1])
+        if v < lower_whisker or v > upper_whisker
     ]
 
     opt["tooltip"] = {
