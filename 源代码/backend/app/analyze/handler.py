@@ -22,11 +22,15 @@ The LLM is injected as a `ChatClient` so tests can stub it deterministically.
 from __future__ import annotations
 
 import ast
+import asyncio
+import contextvars
 import json
 import logging
 import os
 import re
 import secrets
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -44,7 +48,7 @@ from app.analyze.profiler import (
 from app.analyze.schema import AnalyzeResponse, Evidence, Finding
 from app.analyze.stages import record as _stage
 from app.analyze.stages import record_ops as _stage_ops
-from app.report import REPORT_STORE, render_report
+from app.report import REPORT_STORE, RenderedReport, render_report
 from app.spreadsheet.executor import (
     ExecutionReport,
     OpExecutionError,
@@ -110,6 +114,325 @@ _REFUSAL_TEMPLATE = (
     "数据集中不包含「{column}」字段，无法基于现有字段对该维度进行分析。"
     "建议补充该字段后重试，或换一个可基于现有列回答的问题。"
 )
+
+
+# Per-request token listener used by the streaming `/v1/analyze/stream`
+# endpoint to receive incremental `finalize_llm` summary deltas. None
+# means "caller did not opt in"; `_finalize` then takes the
+# non-streaming path. The contextvar is per-asyncio-task so
+# concurrent requests can each install their own listener without
+# bleeding into one another.
+_finalize_token_listener: contextvars.ContextVar[
+    Callable[[str], None] | None
+] = contextvars.ContextVar(
+    "tabletalker_finalize_token_listener", default=None
+)
+
+
+@contextmanager
+def bind_finalize_token_listener(
+    callback: Callable[[str], None],
+) -> Iterator[None]:
+    """Install `callback` as the finalize-stage token sink for the
+    duration of a `with` block. Streaming endpoints wrap their
+    `handle_analyze` call with this; non-streaming endpoints don't,
+    so the contextvar stays at its `None` default and `_finalize`
+    falls through to the buffered `chat()` path.
+    """
+
+    token = _finalize_token_listener.set(callback)
+    try:
+        yield
+    finally:
+        _finalize_token_listener.reset(token)
+
+
+class _SummaryDeltaEmitter:
+    """Translate incremental JSON output into per-character `summary`
+    deltas while the LLM is still emitting tokens.
+
+    The finalize prompt asks for a JSON object with keys `summary`,
+    `title`, `findings`, `recommendations`, `confidence`. Token
+    streaming surfaces the JSON one chunk at a time
+    (`{"summary": "根`, `据`, `数据`, ...). We can't show raw JSON to
+    the user, so this emitter scans the accumulated buffer for the
+    `"summary"` field, decodes the partial string (with JSON escape
+    handling), and fires a callback with only the *new* characters
+    since the last call. Once the closing quote of the summary string
+    appears, emission stops — the user has seen the whole summary
+    well before the rest of the JSON (findings / recs) finishes
+    arriving.
+
+    The regex tolerates whitespace around the colon (`"summary": "...`,
+    `"summary":"...`, `"summary" : "...`). Backslash sequences inside
+    the value are preserved; we only finalise the closing quote when
+    we encounter an unescaped `"`.
+    """
+
+    _SUMMARY_RE = re.compile(r'"summary"\s*:\s*"')
+
+    def __init__(self, listener: Callable[[str], None]) -> None:
+        self._listener = listener
+        self._emitted = ""
+        self._closed = False
+
+    def feed(self, buf: str) -> None:
+        if self._closed:
+            return
+        match = self._SUMMARY_RE.search(buf)
+        if match is None:
+            return  # `"summary":"` not yet seen
+        start = match.end()
+        i = start
+        while i < len(buf):
+            ch = buf[i]
+            if ch == "\\":
+                # JSON escape sequence — skip the backslash and the next
+                # char. If we're at the buffer edge mid-escape, treat the
+                # escape as not-yet-arrived (decode without it).
+                if i + 1 >= len(buf):
+                    segment = buf[start:i]
+                    self._emit_segment(segment)
+                    return
+                i += 2
+                continue
+            if ch == '"':
+                # Closing quote of the summary string.
+                segment = buf[start:i]
+                self._emit_segment(segment)
+                self._closed = True
+                return
+            i += 1
+        # Buffer ends mid-string (no closing quote yet).
+        self._emit_segment(buf[start:i])
+
+    def _emit_segment(self, raw_segment: str) -> None:
+        # `raw_segment` is a JSON string body without surrounding
+        # quotes. Wrap it and decode through `json.loads` so escapes
+        # like `\"`, `\\`, `\n`, `\uXXXX` resolve correctly.
+        try:
+            decoded = json.loads(f'"{raw_segment}"')
+        except json.JSONDecodeError:
+            # Mid-escape or invalid encoding — wait for more bytes.
+            return
+        if not isinstance(decoded, str):
+            return
+        if len(decoded) > len(self._emitted):
+            delta = decoded[len(self._emitted):]
+            self._emitted = decoded
+            try:
+                self._listener(delta)
+            except Exception:  # pragma: no cover - listener bug
+                logger.exception("finalize_llm token listener raised")
+
+
+# Per-finding listener — fires once each time the finalize LLM closes
+# a `{title, detail, ...}` object inside the `findings` array. Drives
+# the SPA to fade in each finding card the moment its JSON brace
+# closes, instead of all of them appearing together when `result`
+# lands.
+_finalize_finding_listener: contextvars.ContextVar[
+    Callable[[dict], None] | None
+] = contextvars.ContextVar(
+    "tabletalker_finalize_finding_listener", default=None
+)
+
+# Same idea for the `recommendations` array (each closed JSON string).
+_finalize_recommendation_listener: contextvars.ContextVar[
+    Callable[[str], None] | None
+] = contextvars.ContextVar(
+    "tabletalker_finalize_recommendation_listener", default=None
+)
+
+
+@contextmanager
+def bind_finalize_finding_listener(
+    callback: Callable[[dict], None],
+) -> Iterator[None]:
+    token = _finalize_finding_listener.set(callback)
+    try:
+        yield
+    finally:
+        _finalize_finding_listener.reset(token)
+
+
+@contextmanager
+def bind_finalize_recommendation_listener(
+    callback: Callable[[str], None],
+) -> Iterator[None]:
+    token = _finalize_recommendation_listener.set(callback)
+    try:
+        yield
+    finally:
+        _finalize_recommendation_listener.reset(token)
+
+
+def _scan_completed_array_elements(buf: str, start: int) -> tuple[list[str], int]:
+    """Walk forward from `start` (just after `[`) and return the
+    substrings of every COMPLETED top-level element in this JSON
+    array, plus the new scan cursor (one past the last consumed char,
+    or len(buf) if we ran out).
+
+    Tolerates objects (`{...}`), strings (`"..."`), and primitive
+    tokens (numbers / true / false / null). Stops at the matching
+    `]` (excluded) or the buffer edge mid-element. Quotes inside
+    objects/strings are tracked so braces inside string values don't
+    fool the depth counter.
+    """
+
+    elements: list[str] = []
+    i = start
+    n = len(buf)
+    while i < n:
+        # Skip element separators / whitespace.
+        while i < n and buf[i] in " \t\n\r,":
+            i += 1
+        if i >= n:
+            return elements, i
+        if buf[i] == "]":
+            return elements, i  # end of array
+        elem_start = i
+        ch = buf[i]
+        if ch == "{":
+            depth = 0
+            in_str = False
+            j = i
+            ended = -1
+            while j < n:
+                c = buf[j]
+                if in_str:
+                    if c == "\\":
+                        j += 2
+                        continue
+                    if c == '"':
+                        in_str = False
+                else:
+                    if c == '"':
+                        in_str = True
+                    elif c == "{":
+                        depth += 1
+                    elif c == "}":
+                        depth -= 1
+                        if depth == 0:
+                            ended = j + 1
+                            break
+                j += 1
+            if ended == -1:
+                return elements, i
+            elements.append(buf[elem_start:ended])
+            i = ended
+        elif ch == '"':
+            j = i + 1
+            ended = -1
+            while j < n:
+                c = buf[j]
+                if c == "\\":
+                    j += 2
+                    continue
+                if c == '"':
+                    ended = j + 1
+                    break
+                j += 1
+            if ended == -1:
+                return elements, i
+            elements.append(buf[elem_start:ended])
+            i = ended
+        else:
+            # Primitive — read until comma / closing bracket. Don't
+            # emit until we see a delimiter so half-typed numbers
+            # (`12`) don't get committed before they grow (`12345`).
+            j = i
+            while j < n and buf[j] not in ",]":
+                j += 1
+            if j >= n:
+                return elements, i
+            elements.append(buf[elem_start:j].strip())
+            i = j
+    return elements, i
+
+
+class _FindingsArrayEmitter:
+    """Watch the accumulating LLM JSON for completed elements of the
+    `findings` array and fire a callback per element.
+
+    Each completed element is parsed as a dict; if it has non-empty
+    `title` and `detail`, the listener gets a `{title, detail}` dict.
+    Closes (no further emissions) once the array's `]` has been seen.
+    """
+
+    _ARRAY_RE = re.compile(r'"findings"\s*:\s*\[')
+
+    def __init__(self, listener: Callable[[dict], None]) -> None:
+        self._listener = listener
+        self._emitted_count = 0
+        self._closed = False
+
+    def feed(self, buf: str) -> None:
+        if self._closed:
+            return
+        m = self._ARRAY_RE.search(buf)
+        if m is None:
+            return
+        elements, cursor = _scan_completed_array_elements(buf, m.end())
+        while self._emitted_count < len(elements):
+            raw = elements[self._emitted_count]
+            self._emitted_count += 1
+            try:
+                obj = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(obj, dict):
+                continue
+            title = str(obj.get("title", "")).strip()
+            detail = str(obj.get("detail", "")).strip()
+            if not title or not detail:
+                continue
+            try:
+                self._listener({"title": title, "detail": detail})
+            except Exception:  # pragma: no cover - listener bug
+                logger.exception("finalize_llm finding listener raised")
+        if cursor < len(buf) and buf[cursor] == "]":
+            self._closed = True
+
+
+class _RecommendationsArrayEmitter:
+    """Same pattern as `_FindingsArrayEmitter` but for the
+    `recommendations` array, whose elements are bare strings."""
+
+    _ARRAY_RE = re.compile(r'"recommendations"\s*:\s*\[')
+
+    def __init__(self, listener: Callable[[str], None]) -> None:
+        self._listener = listener
+        self._emitted_count = 0
+        self._closed = False
+
+    def feed(self, buf: str) -> None:
+        if self._closed:
+            return
+        m = self._ARRAY_RE.search(buf)
+        if m is None:
+            return
+        elements, cursor = _scan_completed_array_elements(buf, m.end())
+        while self._emitted_count < len(elements):
+            raw = elements[self._emitted_count]
+            self._emitted_count += 1
+            try:
+                value = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(value, str):
+                continue
+            text = value.strip()
+            if not text:
+                continue
+            try:
+                self._listener(text)
+            except Exception:  # pragma: no cover - listener bug
+                logger.exception("finalize_llm recommendation listener raised")
+        if cursor < len(buf) and buf[cursor] == "]":
+            self._closed = True
+
+
 _SENSITIVE_DEMOGRAPHIC_TEMPLATE = (
     "当前问题要求按「{label}」等敏感人口属性进行分组分析。"
     "为避免在缺少明确授权、字段口径和合规说明的情况下输出可能造成偏见的结论，"
@@ -253,7 +576,7 @@ async def handle_analyze(
 ) -> AnalyzeResponse:
     """Run the full pipeline and return a contract-shape response."""
 
-    request_id = request.request_id or _new_request_id()
+    request_id = request.request_id or new_request_id()
     report_url = f"{_public_base_url(request.base_url)}/reports/{request_id}.html"
 
     # 1. Profile every uploaded table. The primary table's profile drives
@@ -424,23 +747,35 @@ async def handle_analyze(
                 report_url=report_url,
                 refusal_column=missing_label,
             )
-        logger.warning(
-            "op execution failed at #%d (%s) on shape=%r: %s; op_fields=%s",
-            exc.op_index,
-            exc.op.kind,
-            exc.input_shape,
-            exc.cause,
-            exc.op.model_dump(exclude={"out", "kind"}, mode="json"),
+        recovered = await _retry_plan_after_op_failure(
+            chat_client=chat_client,
+            base_request=plan_req,
+            failed_plan=plan,
+            failure=exc,
+            workspace=request.workspace,
+            profile=profile,
+            extra_profiles=extra_profiles,
         )
-        # `op_index` is 0-based internally; verses are 1-based for users.
-        # Include the underlying cause + input shape in the API detail so the
-        # eval JSON carries enough to root-cause a 422 without backend logs:
-        # "step 8 (add_column) on shape={'src': (264, 3)}: KeyError: 'GDP'".
-        raise AnalyzeFailure(
-            f"op execution failed at step {exc.op_index + 1} ({exc.op.kind}) "
-            f"on shape={exc.input_shape}: {exc.cause}",
-            status_code=422,
-        ) from exc
+        if recovered is not None:
+            plan, report = recovered
+        else:
+            logger.warning(
+                "op execution failed at #%d (%s) on shape=%r: %s; op_fields=%s",
+                exc.op_index,
+                exc.op.kind,
+                exc.input_shape,
+                exc.cause,
+                exc.op.model_dump(exclude={"out", "kind"}, mode="json"),
+            )
+            # `op_index` is 0-based internally; verses are 1-based for users.
+            # Include the underlying cause + input shape in the API detail so the
+            # eval JSON carries enough to root-cause a 422 without backend logs:
+            # "step 8 (add_column) on shape={'src': (264, 3)}: KeyError: 'GDP'".
+            raise AnalyzeFailure(
+                f"op execution failed at step {exc.op_index + 1} ({exc.op.kind}) "
+                f"on shape={exc.input_shape}: {exc.cause}",
+                status_code=422,
+            ) from exc
     _stage("execute")
     # Surface per-op timings alongside the umbrella `execute` stage so the
     # eval renderer can show "which op in a complex plan was slow". Each
@@ -489,6 +824,15 @@ async def handle_analyze(
             f"model did not produce a valid summary: {exc}", status_code=502
         ) from exc
     _stage("finalize_llm")
+    # Yield once so the streaming endpoint's consumer can flush the
+    # listener-queued events ({finalize_llm:end, render:start}) before
+    # the synchronous `render_report` block (which can take 50-200 ms
+    # for chart-heavy reports) blocks the event loop. Without this the
+    # browser never sees a `render: running` state — by the time the
+    # consumer runs, render is already done and all four events flush
+    # together, so the timeline appears to jump straight from finalize
+    # to result.
+    await asyncio.sleep(0)
 
     # 7. Assemble. Each LLM-emitted sub-finding becomes a contract
     # `Finding`. All evidence rows attach to every finding because they
@@ -521,16 +865,28 @@ async def handle_analyze(
     #    `GET /reports/{id}.html` route can serve it on demand. We render
     #    *after* finalisation so the report carries the LLM's narrative
     #    rather than a placeholder.
-    rendered = render_report(
-        report_id=request_id,
-        title=narrative.title,
-        summary=narrative.summary,
-        findings=findings,
-        recommendations=narrative.recommendations,
-        is_refusal=False,
-        answer=report.answer,
-    )
-    REPORT_STORE.put(request_id, rendered.html)
+    #
+    #    Run the render+put in a thread so the event loop stays
+    #    responsive — render_report() is sync and can take 100-1000ms
+    #    on chart-heavy reports. While it blocks, the streaming
+    #    consumer can't flush the `render: start` event we just
+    #    queued, so the frontend sees the timeline jump straight
+    #    from finalize_llm to result with no visible "render"
+    #    state. Offloading to a thread fixes that.
+    def _render_and_persist() -> RenderedReport:
+        r = render_report(
+            report_id=request_id,
+            title=narrative.title,
+            summary=narrative.summary,
+            findings=findings,
+            recommendations=narrative.recommendations,
+            is_refusal=False,
+            answer=report.answer,
+        )
+        REPORT_STORE.put(request_id, r.html)
+        return r
+
+    rendered = await asyncio.to_thread(_render_and_persist)
 
     _stage("render")
     return AnalyzeResponse(
@@ -540,6 +896,7 @@ async def handle_analyze(
         findings=findings,
         charts=rendered.charts,
         recommendations=narrative.recommendations,
+        suggested_questions=narrative.suggested_questions,
         is_refusal=False,
         confidence=narrative.confidence,
     )
@@ -932,6 +1289,178 @@ def _scan_plan_for_oob_paths(plan: Plan) -> str | None:
     return None
 
 
+async def _retry_plan_after_op_failure(
+    *,
+    chat_client: ChatClient,
+    base_request: PlanRequest,
+    failed_plan: Plan,
+    failure: OpExecutionError,
+    workspace: Path,
+    profile: TableProfile,
+    extra_profiles: list[TableProfile] | None = None,
+) -> tuple[Plan, ExecutionReport] | None:
+    """Ask the planner for one corrected plan after a column-lifecycle miss.
+
+    Example failure:
+      group_by Department -> aggregate count -> add_column using Attrition
+
+    `Attrition` exists in the raw upload, so this is not a Cat-1 refusal.
+    The plan simply referenced a column after an aggregation step had
+    reduced the frame to `Department,total_count`. A single targeted
+    replanning round is cheaper and more robust than trying to patch an
+    arbitrary typed plan locally.
+    """
+
+    all_columns = _all_profile_column_names(profile, extra_profiles=extra_profiles)
+    current_columns = _extract_current_columns_from_error(str(failure.cause))
+    retry_guidance: str | None = None
+
+    missing_columns = _extract_missing_column_candidates(failure.cause)
+    if missing_columns and current_columns:
+        all_normalized = {_normalize_column(c) for c in all_columns}
+        current_normalized = {_normalize_column(c) for c in current_columns}
+        lifecycle_columns = [
+            c for c in missing_columns
+            if _normalize_column(c) in all_normalized
+            and _normalize_column(c) not in current_normalized
+        ]
+        if lifecycle_columns:
+            retry_guidance = (
+                "After group_by/aggregate, only the grouping keys and "
+                "aggregate output columns remain. If you need a raw column "
+                f"such as {lifecycle_columns}, use it before aggregation, "
+                "include it in the group_by keys, or compute the needed "
+                "metric directly in aggregate. Do not add a derived column "
+                "from a raw column after aggregation."
+            )
+
+    if retry_guidance is None and _is_arithmetic_dtype_expr_failure(failure.cause):
+        retry_guidance = (
+            "The failed expression tried to use arithmetic on a text or "
+            "categorical column. The expression DSL has no date parser, "
+            "string split, or hour/month extraction. Do not divide, "
+            "subtract, or multiply string/date-looking columns to infer "
+            "date parts. Rewrite the plan using existing columns directly, "
+            "or choose another available categorical/time field that can be "
+            "grouped without derived string arithmetic."
+        )
+
+    if retry_guidance is None and _is_string_aggregate_failure(failure):
+        retry_guidance = (
+            "The failed aggregate tried to compute a numeric statistic such "
+            "as mean/median/sum on a text or categorical column. For text "
+            "columns, use count or nunique; for mean/median/sum, choose a "
+            "real numeric column. Rewrite the plan so every aggregate "
+            "function matches the source column dtype."
+        )
+
+    if retry_guidance is None:
+        return None
+    failed_op = failure.op.model_dump(mode="json", by_alias=True)
+    retry_question = (
+        f"{base_request.question}\n\n"
+        "PREVIOUS PLAN FAILED DURING EXECUTION. Rewrite the plan from scratch.\n"
+        f"- Failed step: #{failure.op_index + 1} ({failure.op.kind}).\n"
+        f"- Failed op JSON: {json.dumps(failed_op, ensure_ascii=False)}\n"
+        f"- Error: {failure.cause}\n"
+        f"- Columns available at the failed step: {current_columns or 'unknown'}\n"
+        f"- Original uploaded columns: {all_columns}\n"
+        f"Important: {retry_guidance}"
+    )
+    retry_req = PlanRequest(
+        question=retry_question,
+        tables=base_request.tables,
+        prelude=base_request.prelude,
+    )
+
+    try:
+        retry_plan = await make_plan(chat_client, retry_req)
+        suspicious = _scan_plan_for_oob_paths(retry_plan)
+        if suspicious is not None:
+            logger.warning("retry plan still suspicious, ignoring: %s", suspicious)
+            return None
+        retry_report = execute(retry_plan, workspace)
+    except (PlannerError, LLMError, PlanValidationError, OpExecutionError) as exc:
+        logger.warning("planner retry after op failure did not recover: %s", exc)
+        return None
+
+    logger.info(
+        "planner retry recovered from op failure at step %d (%s)",
+        failure.op_index + 1,
+        failure.op.kind,
+    )
+    return retry_plan, retry_report
+
+
+def _all_profile_column_names(
+    profile: TableProfile, *, extra_profiles: list[TableProfile] | None = None
+) -> list[str]:
+    names = [c.name for c in profile.columns]
+    if extra_profiles:
+        for ex in extra_profiles:
+            names.extend(c.name for c in ex.columns)
+    return names
+
+
+_HAVE_COLUMNS_PATTERN = re.compile(r"have (?P<list>\[[^\]]*\])")
+
+
+def _extract_missing_column_candidates(cause: BaseException | None) -> list[str]:
+    if cause is None:
+        return []
+    message = str(cause)
+    candidates: list[str] = []
+
+    if isinstance(cause, KeyError):
+        match = _MISSING_COLS_PATTERN.search(message)
+        if match:
+            raw_list = match.group("list")
+            try:
+                parsed = ast.literal_eval(f"[{raw_list}]")
+            except (ValueError, SyntaxError):
+                parsed = None
+            if isinstance(parsed, list):
+                candidates.extend(str(x).strip() for x in parsed if str(x).strip())
+
+    if isinstance(cause, ExprError):
+        match = _EXPR_MISSING_COL_PATTERN.search(message)
+        if match:
+            candidates.append(match.group("col"))
+
+    return candidates
+
+
+def _is_arithmetic_dtype_expr_failure(cause: BaseException | None) -> bool:
+    if not isinstance(cause, ExprError):
+        return False
+    message = str(cause)
+    return "requires numeric/datetime operands" in message
+
+
+def _is_string_aggregate_failure(failure: OpExecutionError) -> bool:
+    if failure.op.kind != "aggregate":
+        return False
+    message = str(failure.cause)
+    return (
+        "does not support operation" in message
+        and "dtype" in message
+        and any(fn in message for fn in ("'mean'", "'median'", "'sum'"))
+    )
+
+
+def _extract_current_columns_from_error(message: str) -> list[str]:
+    match = _HAVE_COLUMNS_PATTERN.search(message)
+    if match is None:
+        return []
+    try:
+        parsed = ast.literal_eval(match.group("list"))
+    except (ValueError, SyntaxError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [str(x) for x in parsed]
+
+
 def _preview_for_planner(path: Path, rows: int = 5) -> pd.DataFrame:
     """Tiny preview the planner sees in the user prompt.
 
@@ -969,6 +1498,7 @@ class _Narrative:
     title: str
     findings: list[_SubFinding]
     recommendations: list[str]
+    suggested_questions: list[str]
     confidence: float
 
 
@@ -992,8 +1522,22 @@ _FINALIZE_PROMPT = """\
     {"title": "...", "detail": "..."}
   ],
   "recommendations": ["<一条具体的中文行动建议，与某个 finding 对应>", "..."],
+  "suggested_questions": [
+    "<基于本轮结果，用户接下来最可能想追问的问题，30 字以内，问号结尾>",
+    "...",
+    "..."
+  ],
   "confidence": <0 到 1 之间的浮点数>
 }
+
+## suggested_questions 怎么写
+
+恰好 3 条。每条满足：
+  - 直接以问号结尾，是用户对**当前回答**的合理下一步追问；
+  - 必须可在**同一份数据集**上回答（不要建议引入外部数据、外部模型、外部新闻）；
+  - 长度 ≤ 30 字，口语化但具体（写"销售部哪个岗位流失最严重？"，不写"再分析一下"）；
+  - 三条之间维度互不重叠：例如 1 条钻取（drill-down 到子分组）、1 条横向对比（换一个维度切片）、1 条根因/相关性追问。
+  - 如果数据特征确实只支持极少数追问（拒答场景或单值标量），允许少于 3 条，但不要凑废话。
 
 ## findings 怎么写
 
@@ -1027,15 +1571,61 @@ async def _finalize(
         f"结果（JSON）：{json.dumps(report.answer, ensure_ascii=False)}\n"
         "请直接输出 JSON。"
     )
-    raw = await client.chat(
-        [
-            {"role": "system", "content": _FINALIZE_PROMPT},
-            {"role": "user", "content": user},
-        ],
-        temperature=0.2,
-        max_tokens=1500,
-        response_format={"type": "json_object"},
-    )
+    messages = [
+        {"role": "system", "content": _FINALIZE_PROMPT},
+        {"role": "user", "content": user},
+    ]
+    kwargs: dict[str, object] = {
+        "temperature": 0.2,
+        "max_tokens": 1500,
+        "response_format": {"type": "json_object"},
+    }
+
+    listener = _finalize_token_listener.get()
+    finding_listener = _finalize_finding_listener.get()
+    rec_listener = _finalize_recommendation_listener.get()
+    can_stream = listener is not None and hasattr(client, "chat_stream")
+    raw: str
+    if can_stream:
+        # Three concurrent emitters scanning the SAME accumulating
+        # buffer: tokens for the summary string, structured items
+        # for the findings array, and structured items for the
+        # recommendations array. Each fires its callback exactly
+        # once per element, so the SPA can fade them in incrementally
+        # instead of all-at-once when the JSON closes.
+        summary_emitter = _SummaryDeltaEmitter(listener)
+        finding_emitter = (
+            _FindingsArrayEmitter(finding_listener)
+            if finding_listener is not None
+            else None
+        )
+        rec_emitter = (
+            _RecommendationsArrayEmitter(rec_listener)
+            if rec_listener is not None
+            else None
+        )
+        buf = ""
+        try:
+            async for delta in client.chat_stream(messages, **kwargs):  # type: ignore[attr-defined]
+                buf += delta
+                summary_emitter.feed(buf)
+                if finding_emitter is not None:
+                    finding_emitter.feed(buf)
+                if rec_emitter is not None:
+                    rec_emitter.feed(buf)
+            raw = buf
+        except Exception as exc:
+            # Streaming path failed (gateway TLS quirk, transport drop,
+            # etc). Fall back to the non-streaming `chat()` so the
+            # user still gets a final summary, just without the live
+            # token reveal. Logging tagged so it's findable in Grafana.
+            logger.warning(
+                "finalize_llm stream failed (%s); falling back to non-stream",
+                type(exc).__name__,
+            )
+            raw = await client.chat(messages, **kwargs)  # type: ignore[arg-type]
+    else:
+        raw = await client.chat(messages, **kwargs)  # type: ignore[arg-type]
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -1094,6 +1684,23 @@ def _coerce_narrative(data: dict) -> _Narrative:
         raise ValueError("recommendations must be a list")
     recommendations = [str(r).strip() for r in recs_raw if str(r).strip()]
 
+    # `suggested_questions`: optional, capped to 3 entries. Trim whitespace,
+    # drop empties, and clip overly long strings (the chip UI looks bad
+    # past ~40 chars). Missing field → empty list, not a hard fail; the
+    # frontend simply renders no chips.
+    sq_raw = data.get("suggested_questions") or []
+    suggested_questions: list[str] = []
+    if isinstance(sq_raw, list):
+        for q in sq_raw:
+            text = str(q).strip()
+            if not text:
+                continue
+            if len(text) > 60:
+                text = text[:60].rstrip() + "…"
+            suggested_questions.append(text)
+            if len(suggested_questions) >= 3:
+                break
+
     confidence_raw = data.get("confidence", 0.7)
     try:
         confidence = float(confidence_raw)
@@ -1109,6 +1716,7 @@ def _coerce_narrative(data: dict) -> _Narrative:
         title=title,
         findings=findings,
         recommendations=recommendations,
+        suggested_questions=suggested_questions,
         confidence=confidence,
     )
 
@@ -1118,7 +1726,7 @@ def _coerce_narrative(data: dict) -> _Narrative:
 # ---------------------------------------------------------------------------
 
 
-def _new_request_id() -> str:
+def new_request_id() -> str:
     """`eval_analysis_<32-hex>` — high-entropy id used as the report key.
 
     The contract example uses a short suffix, but `request_id` doubles as

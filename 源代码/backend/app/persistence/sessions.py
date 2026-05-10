@@ -256,6 +256,23 @@ class SessionRecorder:
                 "    ON DELETE CASCADE"
                 ")"
             )
+            # Session state JSON — the rich `Session` fields the planner
+            # prelude depends on (findings, cohorts, chart_anchors,
+            # parent_summary, refused, original_question, dataset). The
+            # `sessions` and `session_turns` tables track display
+            # metadata; `session_state` is what makes "resume after a
+            # backend restart" possible. Additive, so `IF NOT EXISTS`
+            # handles both fresh installs and existing v1 dbs without
+            # bumping `_SCHEMA_VERSION`.
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS session_state ("
+                "  session_id TEXT PRIMARY KEY,"
+                "  state_json TEXT NOT NULL,"
+                "  updated_at REAL NOT NULL,"
+                "  FOREIGN KEY (session_id) REFERENCES sessions(id) "
+                "    ON DELETE CASCADE"
+                ")"
+            )
             cur.execute(
                 "CREATE INDEX IF NOT EXISTS idx_sessions_updated_at "
                 "ON sessions(updated_at DESC)"
@@ -481,6 +498,96 @@ class SessionRecorder:
                 session_id,
                 turn_index,
             )
+
+    def record_state(self, session_id: str, state: dict) -> None:
+        """Upsert the rich Session-state JSON for `session_id`.
+
+        Called after every successful parent / follow-up turn. The
+        payload is a dict produced by `app.session.serde.session_to_dict`
+        and consumed by the resume endpoint to rebuild an in-memory
+        `Session` after a backend restart. Failures are logged and
+        swallowed — persistence is a side-channel and must not poison
+        the request.
+        """
+
+        try:
+            payload = json.dumps(state, ensure_ascii=False)
+        except (TypeError, ValueError):
+            logger.exception("record_state: non-JSON payload for %s", session_id)
+            return
+        now = time.time()
+        try:
+            with self._tx() as cur:
+                cur.execute(
+                    "INSERT INTO session_state (session_id, state_json, updated_at) "
+                    "VALUES (?, ?, ?) "
+                    "ON CONFLICT(session_id) DO UPDATE SET "
+                    "  state_json=excluded.state_json,"
+                    "  updated_at=excluded.updated_at",
+                    (session_id, payload, now),
+                )
+        except sqlite3.Error:
+            logger.exception("record_state: sqlite write failed for %s", session_id)
+
+    def load_state(self, session_id: str) -> dict | None:
+        """Return the persisted Session-state dict for `session_id` or None."""
+
+        try:
+            with self._tx() as cur:
+                row = cur.execute(
+                    "SELECT state_json FROM session_state WHERE session_id = ?",
+                    (session_id,),
+                ).fetchone()
+        except sqlite3.Error:
+            logger.exception("load_state: sqlite read failed for %s", session_id)
+            return None
+        if row is None:
+            return None
+        try:
+            return json.loads(row["state_json"])
+        except (TypeError, ValueError):
+            logger.exception("load_state: corrupt state_json for %s", session_id)
+            return None
+
+    def find_session_id_by_turn_response_id(
+        self, response_id: str
+    ) -> str | None:
+        """Resolve a turn's response_id back to its owning session_id.
+
+        Used by the follow-up auto-resume fallback: clients commonly
+        send the LATEST turn's id as `parent_id`, but on a fresh
+        process the in-memory `SESSION_STORE.resolve` walk has nothing
+        to match against. The durable `session_turns` table does, and
+        the `session_id` it returns lets the resume helper rehydrate
+        the right session.
+
+        First tries `id == response_id` (the parent's own id is the
+        session id), then `session_turns.response_id`. Returns None if
+        the id matches neither.
+        """
+
+        try:
+            with self._tx() as cur:
+                row = cur.execute(
+                    "SELECT id FROM sessions WHERE id = ? LIMIT 1",
+                    (response_id,),
+                ).fetchone()
+                if row is not None:
+                    return str(row["id"])
+                row = cur.execute(
+                    "SELECT session_id FROM session_turns "
+                    "WHERE response_id = ? LIMIT 1",
+                    (response_id,),
+                ).fetchone()
+                if row is not None:
+                    return str(row["session_id"])
+                return None
+        except sqlite3.Error:
+            logger.exception(
+                "find_session_id_by_turn_response_id: sqlite read failed for %s",
+                response_id,
+            )
+            return None
 
     # ------------------------------------------------------------------
     # Read paths (called from /v1/sessions endpoints)

@@ -194,6 +194,51 @@ class SessionStore:
             return None
         return session
 
+    def resolve(self, session_or_turn_id: str) -> Session | None:
+        """Look up a session by root id or by any response id in its turns.
+
+        The public contract asks clients to send the parent
+        ``eval_analysis_*`` id for every follow-up. The SPA streams each
+        follow-up as a fresh response, though, and some callers naturally
+        chain the next request with the latest ``eval_follow_*_qN`` id.
+        Those turn ids are not sessions by themselves, but they should
+        still resolve to the owning root session.
+        """
+
+        session = self.get(session_or_turn_id)
+        if session is not None:
+            return session
+
+        now = time.time()
+        evicted: list[Session] = []
+        found: Session | None = None
+        with self._lock:
+            # TTL sweep first so a stale turn id cannot resurrect an
+            # expired session. This mirrors `get()`'s stale miss behavior.
+            for sid in [
+                sid
+                for sid, sess in self._items.items()
+                if (now - sess.last_used_at) > self.ttl_seconds
+            ]:
+                evicted.append(self._items.pop(sid))
+
+            found_sid: str | None = None
+            for sid, candidate in self._items.items():
+                if any(
+                    turn.response_id == session_or_turn_id
+                    for turn in candidate.turns
+                ):
+                    found_sid = sid
+                    found = candidate
+                    break
+            if found_sid is not None and found is not None:
+                found.last_used_at = now
+                self._items.move_to_end(found_sid)
+
+        for session_to_clean in evicted:
+            _cleanup_workspace(session_to_clean)
+        return found
+
     def append_turn(self, session_id: str, turn: Turn) -> None:
         """Convenience: append a turn and bump LRU/TTL in one shot."""
 

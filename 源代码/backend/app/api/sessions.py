@@ -238,6 +238,108 @@ def delete_session(session_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Resume — re-bind a persisted Session into the in-memory SESSION_STORE so
+# follow-ups can land. Without this, a backend restart effectively kills
+# every running conversation; the SPA shows the persisted turns from the
+# history index but `/v1/follow-up` 404s because SESSION_STORE is empty.
+# ---------------------------------------------------------------------------
+
+
+class SessionResumeOut(BaseModel):
+    """Response shape for `POST /v1/sessions/{id}/resume`."""
+
+    session_id: str = Field(..., description="Same as the path id, echoed back.")
+    parent_id: str = Field(
+        ...,
+        description=(
+            "The most recent turn's response_id. The SPA hands this to "
+            "`/v1/follow-up` (`parent_id` field) for the next question; "
+            "the SESSION_STORE.resolve() walk handles both the parent's "
+            "id and any later follow-up's id transparently."
+        ),
+    )
+    turn_count: int = Field(..., description="Total turns recorded so far.")
+
+
+@router.post(
+    "/sessions/{session_id}/resume",
+    response_model=SessionResumeOut,
+)
+def resume_session(session_id: str) -> SessionResumeOut:
+    """Rehydrate a persisted Session into the in-memory store.
+
+    Prerequisites for success:
+      * The `session_state` SQLite row exists (every successful turn
+        writes it).
+      * The workspace dir exists on disk and contains the original
+        primary file (and any extras). On a tempdir-only deploy this
+        is impossible after a process restart — the route 410's so the
+        SPA can offer "open a new conversation".
+
+    Idempotent: hitting resume on a session that's *already* in
+    `SESSION_STORE` short-circuits and returns the current latest turn.
+    """
+
+    # Avoid a circular import: SESSION_STORE -> persistence -> sessions
+    # router would fail at module load. The function-local import keeps
+    # the router module load-clean.
+    from app.session import SESSION_STORE
+    from app.session.serde import session_from_dict
+    from app.session.workspace import resolve_workspace_root
+
+    existing = SESSION_STORE.get(session_id)
+    if existing is not None:
+        latest = existing.turns[-1] if existing.turns else None
+        return SessionResumeOut(
+            session_id=session_id,
+            parent_id=latest.response_id if latest else session_id,
+            turn_count=len(existing.turns),
+        )
+
+    recorder = get_session_recorder()
+    state = recorder.load_state(session_id)
+    if state is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"session {session_id!r} has no persisted state",
+        )
+
+    root = resolve_workspace_root()
+    if root is None:
+        # Tempdir-only deploy — the workspace is gone after the
+        # process that created it exited. There is no recoverable
+        # state to put a Session back together with, so don't pretend
+        # we resumed.
+        raise HTTPException(
+            status.HTTP_410_GONE,
+            "this deploy doesn't persist workspaces; "
+            "session can be viewed but not resumed",
+        )
+    workspace_dir = root / session_id
+    if not workspace_dir.is_dir():
+        raise HTTPException(
+            status.HTTP_410_GONE,
+            f"workspace for {session_id!r} no longer exists on disk",
+        )
+
+    primary_file = workspace_dir / state.get("filename", "")
+    if not primary_file.is_file():
+        raise HTTPException(
+            status.HTTP_410_GONE,
+            "workspace exists but the primary upload is missing",
+        )
+
+    session = session_from_dict(state, workspace_dir)
+    SESSION_STORE.put(session)
+    latest = session.turns[-1] if session.turns else None
+    return SessionResumeOut(
+        session_id=session_id,
+        parent_id=latest.response_id if latest else session_id,
+        turn_count=len(session.turns),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 

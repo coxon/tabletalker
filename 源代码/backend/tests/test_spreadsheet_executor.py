@@ -142,24 +142,24 @@ def test_answer_must_be_render_payload(workspace: Path) -> None:
         execute(plan, workspace)
 
 
-def test_aggregate_requires_group_by_producer(workspace: Path) -> None:
-    """The DAG-validation pass rejects `aggregate` whose src is a frame."""
+def test_aggregate_accepts_dataframe_producer(workspace: Path) -> None:
+    """Whole-frame aggregation is valid after load/filter/select."""
     _write_sales(workspace)
     plan = Plan(
         ops=[
             LoadCsvOp(kind="load_csv", out="raw", path="sales.csv"),
-            # `raw` is a DataFrame, not a GroupBy — should be rejected
-            # at plan validation, before we even start executing.
             AggregateOp(
                 kind="aggregate",
                 out="totals",
                 src="raw",
                 aggs=[AggSpec(column="amount", fn="sum", **{"as": "total"})],
             ),
-        ]
+            ToTableOp(kind="to_table", out="result", src="totals"),
+        ],
+        answer="result",
     )
-    with pytest.raises(PlanValidationError, match="must come from a `group_by`"):
-        execute(plan, workspace)
+    report = execute(plan, workspace)
+    assert report.answer["rows"] == [{"total": 425}]
 
 
 def test_head_and_tail_reject_negative_n() -> None:

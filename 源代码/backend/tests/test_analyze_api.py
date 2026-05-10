@@ -506,23 +506,15 @@ def test_analyze_refusal_handles_column_name_with_embedded_comma(
     assert stub.calls == 1
 
 
-def test_analyze_op_error_unrelated_to_columns_still_returns_422(
+def test_analyze_accepts_whole_dataframe_aggregate(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Non-missing-column op failures stay 422 — refusal promotion is
-    targeted, not a catch-all.
+    """The planner may emit filter/load → aggregate for scalar summaries."""
 
-    `aggregate.src` must point to a `group_by` op (executor §_validate_dag
-    semantic check). Sending an aggregate whose src is a raw load triggers
-    `PlanValidationError`, which has no missing-column signal and so must
-    not promote to a refusal — that would mask real plan bugs.
-    """
-
-    bad_plan = json.dumps(
+    plan = json.dumps(
         {
             "ops": [
                 {"kind": "load_csv", "out": "raw", "path": "sales.csv"},
-                # aggregate.src must come from group_by; raw is a DataFrame.
                 {
                     "kind": "aggregate",
                     "out": "totals",
@@ -534,7 +526,7 @@ def test_analyze_op_error_unrelated_to_columns_still_returns_422(
             "answer": "answer",
         }
     )
-    stub = _SequencedStubClient([bad_plan])
+    stub = _SequencedStubClient([plan, _narrative_json()])
     monkeypatch.setattr(api_module, "HttpChatClient", lambda config: stub)
 
     response = client.post(
@@ -542,8 +534,218 @@ def test_analyze_op_error_unrelated_to_columns_still_returns_422(
         files={"file": ("sales.csv", _csv_bytes(), "text/csv")},
         data={"question": "aggregate without grouping"},
     )
-    assert response.status_code == 422, response.text
-    assert stub.calls == 1
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["findings"][0]["evidence"][1]["aggregation"] == "sum(amount)"
+    assert body["findings"][0]["evidence"][1]["value"] == 425
+    assert stub.calls == 2
+
+
+def test_analyze_replans_when_raw_column_is_used_after_aggregation(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A raw column missing only after aggregate should trigger replan, not refusal."""
+
+    hr_csv = (
+        b"Department,Attrition\n"
+        b"Sales,Yes\n"
+        b"Sales,No\n"
+        b"HR,No\n"
+    )
+    bad_plan = json.dumps(
+        {
+            "ops": [
+                {"kind": "load_csv", "out": "raw", "path": "hr.csv"},
+                {"kind": "group_by", "out": "dept", "src": "raw", "by": ["Department"]},
+                {
+                    "kind": "aggregate",
+                    "out": "totals",
+                    "src": "dept",
+                    "aggs": [{"column": "Attrition", "fn": "count", "as": "total_count"}],
+                },
+                {
+                    "kind": "add_column",
+                    "out": "bad_rate",
+                    "src": "totals",
+                    "name": "attrition_flag",
+                    "expr": {
+                        "op": "==",
+                        "args": [{"col": "Attrition"}, {"lit": "Yes"}],
+                    },
+                },
+                {"kind": "to_table", "out": "answer", "src": "bad_rate"},
+            ],
+            "answer": "answer",
+        }
+    )
+    fixed_plan = json.dumps(
+        {
+            "ops": [
+                {"kind": "load_csv", "out": "raw", "path": "hr.csv"},
+                {
+                    "kind": "filter_rows",
+                    "out": "attrited",
+                    "src": "raw",
+                    "where": {
+                        "op": "==",
+                        "args": [{"col": "Attrition"}, {"lit": "Yes"}],
+                    },
+                },
+                {"kind": "group_by", "out": "dept", "src": "attrited", "by": ["Department"]},
+                {
+                    "kind": "aggregate",
+                    "out": "totals",
+                    "src": "dept",
+                    "aggs": [{"column": "Attrition", "fn": "count", "as": "attrition_count"}],
+                },
+                {"kind": "to_table", "out": "answer", "src": "totals"},
+            ],
+            "answer": "answer",
+        }
+    )
+    stub = _SequencedStubClient([bad_plan, fixed_plan, _narrative_json()])
+    monkeypatch.setattr(api_module, "HttpChatClient", lambda config: stub)
+
+    response = client.post(
+        "/v1/analyze",
+        files={"file": ("hr.csv", hr_csv, "text/csv")},
+        data={"question": "各部门的离职人数是多少？"},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["is_refusal"] is False
+    assert body["findings"][0]["evidence"][1]["aggregation"] == "count(Attrition)"
+    assert body["findings"][0]["evidence"][1]["value"] == 1
+    assert stub.calls == 3
+
+
+def test_analyze_replans_when_planner_uses_arithmetic_on_text_column(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """String/date-looking columns must not be divided to derive date parts."""
+
+    csv_bytes = (
+        b"txn_date,channel,is_fraud\n"
+        b"2025-10-24,app,1\n"
+        b"2025-10-24,web,0\n"
+        b"2025-10-25,app,0\n"
+    )
+    bad_plan = json.dumps(
+        {
+            "ops": [
+                {"kind": "load_csv", "out": "raw", "path": "fraud.csv"},
+                {
+                    "kind": "add_column",
+                    "out": "bad_hour",
+                    "src": "raw",
+                    "name": "hour",
+                    "expr": {
+                        "op": "/",
+                        "args": [{"col": "txn_date"}, {"lit": 10000}],
+                    },
+                },
+                {"kind": "group_by", "out": "g", "src": "bad_hour", "by": ["channel"]},
+                {
+                    "kind": "aggregate",
+                    "out": "totals",
+                    "src": "g",
+                    "aggs": [{"column": "is_fraud", "fn": "sum", "as": "fraud_count"}],
+                },
+                {"kind": "to_table", "out": "answer", "src": "totals"},
+            ],
+            "answer": "answer",
+        }
+    )
+    fixed_plan = json.dumps(
+        {
+            "ops": [
+                {"kind": "load_csv", "out": "raw", "path": "fraud.csv"},
+                {"kind": "group_by", "out": "g", "src": "raw", "by": ["channel"]},
+                {
+                    "kind": "aggregate",
+                    "out": "totals",
+                    "src": "g",
+                    "aggs": [{"column": "is_fraud", "fn": "sum", "as": "fraud_count"}],
+                },
+                {"kind": "to_table", "out": "answer", "src": "totals"},
+            ],
+            "answer": "answer",
+        }
+    )
+    stub = _SequencedStubClient([bad_plan, fixed_plan, _narrative_json()])
+    monkeypatch.setattr(api_module, "HttpChatClient", lambda config: stub)
+
+    response = client.post(
+        "/v1/analyze",
+        files={"file": ("fraud.csv", csv_bytes, "text/csv")},
+        data={"question": "按小时看欺诈情况"},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["is_refusal"] is False
+    assert body["findings"][0]["evidence"][1]["aggregation"] == "sum(is_fraud)"
+    assert stub.calls == 3
+
+
+def test_analyze_replans_when_planner_means_text_column(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Text columns should use count/nunique, not mean."""
+
+    csv_bytes = (
+        b"Department,JobRole,Attrition\n"
+        b"Sales,Executive,Yes\n"
+        b"Sales,Representative,No\n"
+        b"HR,Manager,No\n"
+    )
+    bad_plan = json.dumps(
+        {
+            "ops": [
+                {"kind": "load_csv", "out": "raw", "path": "hr.csv"},
+                {"kind": "group_by", "out": "g", "src": "raw", "by": ["Department"]},
+                {
+                    "kind": "aggregate",
+                    "out": "totals",
+                    "src": "g",
+                    "aggs": [{"column": "JobRole", "fn": "mean", "as": "avg_role"}],
+                },
+                {"kind": "to_table", "out": "answer", "src": "totals"},
+            ],
+            "answer": "answer",
+        }
+    )
+    fixed_plan = json.dumps(
+        {
+            "ops": [
+                {"kind": "load_csv", "out": "raw", "path": "hr.csv"},
+                {"kind": "group_by", "out": "g", "src": "raw", "by": ["Department"]},
+                {
+                    "kind": "aggregate",
+                    "out": "totals",
+                    "src": "g",
+                    "aggs": [{"column": "JobRole", "fn": "nunique", "as": "role_types"}],
+                },
+                {"kind": "to_table", "out": "answer", "src": "totals"},
+            ],
+            "answer": "answer",
+        }
+    )
+    stub = _SequencedStubClient([bad_plan, fixed_plan, _narrative_json()])
+    monkeypatch.setattr(api_module, "HttpChatClient", lambda config: stub)
+
+    response = client.post(
+        "/v1/analyze",
+        files={"file": ("hr.csv", csv_bytes, "text/csv")},
+        data={"question": "各部门平均岗位是什么？"},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["is_refusal"] is False
+    assert body["findings"][0]["evidence"][1]["aggregation"] == "nunique(JobRole)"
+    assert stub.calls == 3
 
 
 def test_analyze_promotes_expr_missing_column_to_refusal(

@@ -116,14 +116,22 @@ def render_report(
 
     _assert_anchors_present(html, chart_images)
 
-    charts: list[Chart] = [
-        Chart(
-            type=image.type_label,  # type: ignore[arg-type]  # type_label is the contract Literal
-            title=image.title,
-            html_anchor=f"#{image.anchor_id}",
+    # Inline-renderable ECharts option only on the FIRST chart. The
+    # SPA shows that one chart in the chat thread directly; the rest
+    # remain reachable via the report side-panel. Keeping it to one
+    # avoids the chat turning into a chart wall — the report panel
+    # is right there for users who want all of them.
+    charts: list[Chart] = []
+    for idx, image in enumerate(chart_images):
+        echarts_option = image.echarts_option if idx == 0 and image.echarts_option else None
+        charts.append(
+            Chart(
+                type=image.type_label,  # type: ignore[arg-type]  # type_label is the contract Literal
+                title=image.title,
+                html_anchor=f"#{image.anchor_id}",
+                echarts_option=echarts_option,
+            )
         )
-        for image in chart_images
-    ]
     return RenderedReport(html=html, charts=charts)
 
 

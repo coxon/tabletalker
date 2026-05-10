@@ -37,6 +37,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.analyze.handler import (
     AnalyzeFailure,
     AnalyzeRequest,
+    bind_finalize_finding_listener,
+    bind_finalize_recommendation_listener,
+    bind_finalize_token_listener,
     build_refusal_carry_through,
     handle_analyze,
     make_followup_id,
@@ -49,7 +52,9 @@ from app.session import (
     extract_cohorts,
     render_followup_system_prompt,
 )
+from app.session.resume import try_resume_session
 from app.spreadsheet.llm import HttpChatClient, LLMConfig, LLMConfigError
+from app.spreadsheet.planner import bind_plan_op_listener
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +95,13 @@ async def follow_up(
     if not clean_question:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "question must not be empty")
 
-    session = SESSION_STORE.get(body.parent_id)
+    session = SESSION_STORE.resolve(body.parent_id)
+    if session is None:
+        # In-memory miss → silently try to rebuild from durable
+        # storage (typically because the backend restarted between
+        # the parent analyze and this follow-up). Only 404's if the
+        # disk artefacts are also missing.
+        session = try_resume_session(body.parent_id)
     if session is None:
         # 404 covers both "never existed" and "expired (TTL)". The
         # contract doesn't distinguish — the grader retries on 404 by
@@ -301,12 +312,23 @@ def _record_followup_safe(
     """
 
     try:
-        get_session_recorder().record_followup(
+        recorder = get_session_recorder()
+        recorder.record_followup(
             session_id=session_id,
             turn_index=turn_index,
             question=question,
             response=response,
         )
+        # Refresh the rich state JSON now that the in-memory Session
+        # has the new turn's findings / cohorts / chart anchors merged
+        # in. Without this update, a backend restart between turn N
+        # and turn N+1 would resume the session at turn N's state,
+        # losing the most recent context that the planner prelude
+        # depends on.
+        live_session = SESSION_STORE.get(session_id)
+        if live_session is not None:
+            from app.session.serde import session_to_dict
+            recorder.record_state(session_id, session_to_dict(live_session))
     except Exception:  # side-channel; never fail the request
         logger.exception(
             "history recorder: follow-up persist raised for %s/%d",
@@ -339,7 +361,11 @@ async def follow_up_stream(body: FollowUpRequest, request: Request) -> Streaming
     if not clean_question:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "question must not be empty")
 
-    session = SESSION_STORE.get(body.parent_id)
+    session = SESSION_STORE.resolve(body.parent_id)
+    if session is None:
+        # Same auto-resume fallback as the non-streaming endpoint;
+        # see the docstring on `try_resume_session`.
+        session = try_resume_session(body.parent_id)
     if session is None:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
@@ -463,13 +489,53 @@ async def follow_up_stream(body: FollowUpRequest, request: Request) -> Streaming
     async def runner() -> None:
         timer: StageTimer | None = None
         turn_finalized = False
+
+        def on_finalize_token(delta: str) -> None:
+            # Live `summary` deltas as the finalize LLM streams its
+            # JSON response. Frontend accumulates these into a
+            # progressive summary so the user doesn't stare at a
+            # silent spinner during the 10-15 s narrative call.
+            emit({
+                "type": "partial",
+                "field": "summary",
+                "delta": delta,
+            })
+
+        def on_finalize_finding(value: dict) -> None:
+            emit({
+                "type": "partial",
+                "field": "finding",
+                "value": value,
+            })
+
+        def on_finalize_recommendation(text: str) -> None:
+            emit({
+                "type": "partial",
+                "field": "recommendation",
+                "text": text,
+            })
+
+        def on_plan_op(kind: str) -> None:
+            # See api/analyze.py's identical hook — emit one chip per
+            # op kind as the planner LLM closes each `"kind":"<name>"`
+            # JSON value, so the user sees the plan being assembled.
+            emit({
+                "type": "partial",
+                "field": "plan_op",
+                "kind": kind,
+            })
+
         try:
             emit({"type": "stage", "name": STAGE_ORDER[0], "status": "start"})
             try:
-                with bind_stage_timer(listener=on_stage) as timer:
-                    analyze_response = await handle_analyze(
-                        analyze_request, chat_client=chat_client
-                    )
+                with bind_plan_op_listener(on_plan_op):
+                    with bind_finalize_token_listener(on_finalize_token):
+                     with bind_finalize_finding_listener(on_finalize_finding):
+                      with bind_finalize_recommendation_listener(on_finalize_recommendation):
+                        with bind_stage_timer(listener=on_stage) as timer:
+                            analyze_response = await handle_analyze(
+                                analyze_request, chat_client=chat_client
+                            )
             except AnalyzeFailure as exc:
                 SESSION_STORE.discard_turn(
                     session.id, turn_index, allocation_token=alloc_token

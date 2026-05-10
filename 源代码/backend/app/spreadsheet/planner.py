@@ -15,7 +15,12 @@ plan's max_tokens.
 
 from __future__ import annotations
 
+import contextvars
 import json
+import logging
+import re
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 import pandas as pd
@@ -23,6 +28,70 @@ from pydantic import ValidationError
 
 from app.spreadsheet.llm import ChatClient
 from app.spreadsheet.schema import Plan
+
+logger = logging.getLogger(__name__)
+
+
+# Per-request listener for plan-stage `op` labels — the streaming
+# `/v1/analyze/stream` endpoint binds this so each op kind can be
+# pushed to the frontend as the LLM emits `"kind": "<name>"` mid-JSON.
+# `None` means "no caller asked for op chips"; `make_plan` then takes
+# the buffered (non-streaming) path and the contextvar read costs
+# nothing.
+_plan_op_listener: contextvars.ContextVar[
+    Callable[[str], None] | None
+] = contextvars.ContextVar(
+    "tabletalker_plan_op_listener", default=None
+)
+
+
+@contextmanager
+def bind_plan_op_listener(
+    callback: Callable[[str], None],
+) -> Iterator[None]:
+    """Install `callback` as the plan-stage op-chip sink for the
+    duration of a `with` block. Each op kind in the streaming JSON
+    fires `callback(kind)` exactly once, in declaration order.
+    """
+
+    token = _plan_op_listener.set(callback)
+    try:
+        yield
+    finally:
+        _plan_op_listener.reset(token)
+
+
+class _PlanOpEmitter:
+    """Watch the accumulating Plan JSON for new `"kind": "..."` op
+    labels and emit each one as soon as its closing quote arrives.
+
+    Why this instead of streaming raw tokens: a Plan is structured
+    JSON the user can't read mid-stream — `{"ops":[{"kind":"l` is
+    noise. The op kind values *are* meaningful (load / group_by /
+    aggregate / sort …) and emitting one chip per op as it lands gives
+    the user concrete progress: "已规划 load → group_by → aggregate".
+
+    The regex tolerates `"kind":"name"` and `"kind" : "name"` and
+    arbitrary whitespace; it intentionally rejects names containing
+    backslashes (no JSON escapes in op kinds today, so the simpler
+    pattern is fine and cheap).
+    """
+
+    _KIND_RE = re.compile(r'"kind"\s*:\s*"([^"\\]+)"')
+
+    def __init__(self, listener: Callable[[str], None]) -> None:
+        self._listener = listener
+        self._emitted_count = 0
+
+    def feed(self, buf: str) -> None:
+        kinds = self._KIND_RE.findall(buf)
+        while self._emitted_count < len(kinds):
+            kind = kinds[self._emitted_count]
+            self._emitted_count += 1
+            try:
+                self._listener(kind)
+            except Exception:  # pragma: no cover - listener bug
+                logger.exception("plan_llm op listener raised")
 
 # Maximum number of retries when the LLM's output fails Plan validation.
 # Each retry includes the validation error in the conversation so the model
@@ -322,12 +391,43 @@ async def make_plan(client: ChatClient, req: PlanRequest) -> Plan:
 
     last_error: str | None = None
     for attempt in range(MAX_PLAN_RETRIES + 1):
-        raw = await client.chat(
-            messages,
-            temperature=0.1,
-            max_tokens=2000,
-            response_format={"type": "json_object"},
-        )
+        listener = _plan_op_listener.get()
+        can_stream = listener is not None and hasattr(client, "chat_stream")
+        if can_stream:
+            emitter = _PlanOpEmitter(listener)
+            buf = ""
+            try:
+                async for delta in client.chat_stream(  # type: ignore[attr-defined]
+                    messages,
+                    temperature=0.1,
+                    max_tokens=2000,
+                    response_format={"type": "json_object"},
+                ):
+                    buf += delta
+                    emitter.feed(buf)
+                raw = buf
+            except Exception as exc:
+                # Streaming path failed — fall back to non-streaming
+                # `chat()` so the planner still produces a Plan. The op
+                # chips just won't render for this attempt; the user
+                # still sees the stage-level spinner.
+                logger.warning(
+                    "plan_llm stream failed (%s); falling back to non-stream",
+                    type(exc).__name__,
+                )
+                raw = await client.chat(
+                    messages,
+                    temperature=0.1,
+                    max_tokens=2000,
+                    response_format={"type": "json_object"},
+                )
+        else:
+            raw = await client.chat(
+                messages,
+                temperature=0.1,
+                max_tokens=2000,
+                response_format={"type": "json_object"},
+            )
         try:
             data = json.loads(raw)
         except json.JSONDecodeError as exc:

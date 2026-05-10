@@ -39,6 +39,23 @@ def test_group_then_aggregate(ctx: SpreadsheetContext) -> None:
     assert east["n_orders"] == 30
 
 
+def test_dataframe_aggregate(ctx: SpreadsheetContext) -> None:
+    handle_aggregate(
+        AggregateOp(
+            kind="aggregate",
+            out="totals",
+            src="sales",
+            aggs=[
+                AggSpec(column="amount", fn="sum", **{"as": "total"}),
+                AggSpec(column="orders", fn="count", **{"as": "n"}),
+            ],
+        ),
+        ctx,
+    )
+    df = ctx.get("totals")
+    assert df.to_dict(orient="records") == [{"total": 575, "n": 5}]
+
+
 def test_sort_desc(ctx: SpreadsheetContext) -> None:
     handle_sort(
         SortOp(kind="sort", out="sorted", src="sales", by=["amount"], desc=[True]),

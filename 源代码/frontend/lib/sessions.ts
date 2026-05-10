@@ -51,3 +51,13 @@ export interface SessionListOut {
   stats: SessionStatsOut;
   items: SessionSummaryOut[];
 }
+
+// POST /v1/sessions/{id}/resume — re-binds a persisted session into the
+// in-memory SESSION_STORE so follow-ups land. The frontend still
+// fetches the read-only detail via GET /v1/sessions/{id}; resume is
+// the *additional* call that makes the next /v1/follow-up legal.
+export interface SessionResumeOut {
+  session_id: string;
+  parent_id: string;
+  turn_count: number;
+}

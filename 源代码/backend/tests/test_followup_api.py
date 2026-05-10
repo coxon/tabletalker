@@ -202,6 +202,47 @@ def test_follow_up_increments_q_counter_per_turn(
     assert r2.json()["id"].endswith("_q2")
 
 
+def test_follow_up_can_chain_from_previous_follow_up_response_id(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The SPA may send the latest `eval_follow_*` id as parent_id.
+
+    Backend sessions are rooted at the original `eval_analysis_*` id, so
+    the store must resolve turn response ids back to the owning session
+    before allocating the next q-number.
+    """
+
+    stub = _SequencedStubClient(
+        [
+            _plan_json(), _narrative_json(),
+            _plan_json(), _narrative_json(title="t1", summary="summary one"),
+            _plan_json(), _narrative_json(title="t2", summary="summary two"),
+        ]
+    )
+    monkeypatch.setattr(analyze_module, "HttpChatClient", lambda config: stub)
+    monkeypatch.setattr(follow_up_module, "HttpChatClient", lambda config: stub)
+
+    parent = _seed_parent(client, monkeypatch, stub)
+    pid = parent["id"]
+
+    r1 = client.post("/v1/follow-up", json={"parent_id": pid, "question": "Q1"})
+    assert r1.status_code == 200, r1.text
+    q1_id = r1.json()["id"]
+    assert q1_id.endswith("_q1")
+
+    r2 = client.post("/v1/follow-up", json={"parent_id": q1_id, "question": "Q2"})
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["id"].endswith("_q2")
+
+    session = SESSION_STORE.get(pid)
+    assert session is not None
+    assert [turn.response_id for turn in session.turns] == [
+        pid,
+        q1_id,
+        r2.json()["id"],
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Refusal carry-through
 # ---------------------------------------------------------------------------

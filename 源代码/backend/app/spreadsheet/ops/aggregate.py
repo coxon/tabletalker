@@ -39,15 +39,39 @@ def handle_group_by(op: GroupByOp, ctx: SpreadsheetContext) -> OpResult:
 
 
 def handle_aggregate(op: AggregateOp, ctx: SpreadsheetContext) -> OpResult:
-    grouped = ctx.get(op.src)
-    if not isinstance(grouped, DataFrameGroupBy):
+    src = ctx.get(op.src)
+    if isinstance(src, DataFrameGroupBy):
+        # Build a {output_name: (column, fn)} dict for `.agg(**kwargs)`.
+        named_aggs = {a.as_: (a.column, a.fn) for a in op.aggs}
+        df = src.agg(**named_aggs).reset_index()
+    elif isinstance(src, pd.DataFrame):
+        # Whole-frame aggregate. This covers common planner output such as:
+        # filter rows -> aggregate count/mean -> to_table. Forcing the LLM
+        # to invent a dummy group key is brittle and adds no analytical value.
+        row = {a.as_: _aggregate_series(src[a.column], a.fn) for a in op.aggs}
+        df = pd.DataFrame([row])
+    else:
         raise TypeError(
-            f"aggregate expects a GroupBy at {op.src!r}, got {type(grouped).__name__}; "
-            "did you forget a `group_by` op upstream?"
+            f"aggregate expects DataFrame or GroupBy at {op.src!r}, got "
+            f"{type(src).__name__}"
         )
-
-    # Build a {output_name: (column, fn)} dict for `.agg(**kwargs)`.
-    named_aggs = {a.as_: (a.column, a.fn) for a in op.aggs}
-    df = grouped.agg(**named_aggs).reset_index()
     ctx.put(op.out, df)
     return OpResult(out=op.out, kind="aggregate", rows=len(df), cols=len(df.columns))
+
+
+def _aggregate_series(series: pd.Series, fn: str) -> object:
+    if fn == "sum":
+        return series.sum()
+    if fn == "mean":
+        return series.mean()
+    if fn == "count":
+        return series.count()
+    if fn == "min":
+        return series.min()
+    if fn == "max":
+        return series.max()
+    if fn == "median":
+        return series.median()
+    if fn == "nunique":
+        return series.nunique(dropna=True)
+    raise ValueError(f"unsupported aggregate fn {fn!r}")

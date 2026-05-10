@@ -18,12 +18,24 @@ httpcore (which httpx uses internally) is accepted by *both* gateways
 we test against (`aigw.asiainfo.com` and `model.asiainfo.com`). Routing
 every request through the httpcore transport keeps a single code path
 that works on both, with no env-conditional branching.
+
+Streaming caveat: `chat_stream` uses httpx's *default* transport rather
+than `_HttpcoreTransport` because the latter buffers the full response
+into memory before returning (see `handle_async_request` below). The
+`aigw.asiainfo.com` gateway accepts httpx's default TLS handshake, so
+streaming works on the production deploy; on `model.asiainfo.com` it
+would fail at the handshake. The streaming path has a fallback path in
+`handler._finalize` that retries via the non-streaming `chat()` if the
+stream raises, so the worst-case behaviour is "user sees only the
+final summary, no token-by-token reveal".
 """
 
 from __future__ import annotations
 
+import json
 import math
 import os
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
@@ -79,7 +91,14 @@ class LLMError(Exception):
 
 
 class ChatClient(Protocol):
-    """Minimal interface so tests can swap in a stub."""
+    """Minimal interface so tests can swap in a stub.
+
+    `chat_stream` is intentionally NOT in this Protocol because most
+    test stubs only implement `chat`. The streaming path in
+    `handler._finalize` checks `hasattr(client, "chat_stream")` before
+    using it and falls back to `chat` otherwise — so adding the streaming
+    method later doesn't force every stub to implement it.
+    """
 
     async def chat(
         self,
@@ -152,6 +171,116 @@ class HttpChatClient:
             return str(data["choices"][0]["message"]["content"])
         except (KeyError, IndexError, ValueError) as exc:
             raise LLMError(f"unexpected response shape: {exc}") from exc
+
+    async def chat_stream(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float = 0.1,
+        max_tokens: int = 2000,
+        response_format: dict[str, Any] | None = None,
+    ) -> AsyncIterator[str]:
+        """Yield token deltas as the gateway streams them.
+
+        Uses OpenAI's standard SSE protocol: the server emits one
+        `data: {...}` line per chunk where `choices[0].delta.content`
+        carries the next token fragment, and a terminal `data: [DONE]`
+        signals the end. We yield each non-empty content delta as a
+        plain `str` so callers don't depend on the SSE shape.
+
+        Transport: goes DIRECTLY through `httpcore.AsyncConnectionPool`,
+        matching `chat()`'s `_HttpcoreTransport`. Both `aigw.asiainfo.com`
+        and `model.asiainfo.com` reject httpx's default TLS handshake
+        (`SSL: UNEXPECTED_EOF_WHILE_READING`), but accept bare httpcore.
+        Earlier the streaming path used httpx's default transport, which
+        silently regressed to non-streaming `chat()` via the fallback in
+        `handler._finalize` on the `model.asiainfo.com` gateway — the
+        user saw stage events but no token-by-token reveal.
+
+        `_HttpcoreTransport.handle_async_request` reads the full body
+        into memory before returning, so we can't reuse it for
+        streaming — hence the direct `httpcore.AsyncConnectionPool.stream`.
+        """
+
+        payload: dict[str, Any] = {
+            "model": self._config.model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+        }
+        if response_format is not None:
+            payload["response_format"] = response_format
+
+        url = f"{self._config.base_url}/chat/completions"
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers: list[tuple[bytes, bytes]] = [
+            (b"Authorization", f"Bearer {self._config.api_key}".encode()),
+            (b"Content-Type", b"application/json"),
+            (b"Accept", b"text/event-stream"),
+            (b"Content-Length", str(len(body)).encode()),
+        ]
+        # Forward the configured timeout so a slow-generating LLM
+        # doesn't get killed by httpcore's defaults mid-stream.
+        extensions = {
+            "timeout": {
+                "connect": self._config.timeout_s,
+                "read": self._config.timeout_s,
+                "write": self._config.timeout_s,
+                "pool": self._config.timeout_s,
+            },
+        }
+
+        pool = httpcore.AsyncConnectionPool()
+        try:
+            async with pool.stream(
+                b"POST",
+                url.encode(),
+                headers=headers,
+                content=body,
+                extensions=extensions,
+            ) as response:
+                if response.status != 200:
+                    body_bytes = await response.aread()
+                    text = body_bytes.decode("utf-8", errors="replace")
+                    raise LLMError(
+                        f"upstream returned {response.status}: {text[:500]}"
+                    )
+                buf = b""
+                async for chunk in response.aiter_stream():
+                    buf += chunk
+                    # SSE frames are `\n`-terminated (single) or `\n\n`
+                    # (frame-separator). Split per line and process each.
+                    while b"\n" in buf:
+                        line, buf = buf.split(b"\n", 1)
+                        line = line.strip()
+                        if not line.startswith(b"data:"):
+                            continue
+                        data = line[len(b"data:"):].strip()
+                        if not data:
+                            continue
+                        if data == b"[DONE]":
+                            return
+                        try:
+                            obj = json.loads(data)
+                        except json.JSONDecodeError:
+                            # Keep-alive comments or malformed intermediate
+                            # lines — skip, don't abort the stream.
+                            continue
+                        try:
+                            delta = obj["choices"][0]["delta"].get("content", "")
+                        except (KeyError, IndexError):
+                            continue
+                        if delta:
+                            yield str(delta)
+        except (httpcore.NetworkError, httpcore.ProtocolError,
+                httpcore.TimeoutException) as exc:
+            raise LLMError(
+                f"stream transport error ({type(exc).__name__}): "
+                f"{exc or '<no message>'}"
+            ) from exc
+        finally:
+            await pool.aclose()
 
 
 class _HttpcoreTransport(httpx.AsyncBaseTransport):

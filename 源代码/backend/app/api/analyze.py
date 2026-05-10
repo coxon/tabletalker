@@ -26,7 +26,6 @@ import asyncio
 import json
 import logging
 import shutil
-import tempfile
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,7 +36,11 @@ from fastapi.responses import StreamingResponse
 from app.analyze.handler import (
     AnalyzeFailure,
     AnalyzeRequest,
+    bind_finalize_finding_listener,
+    bind_finalize_recommendation_listener,
+    bind_finalize_token_listener,
     handle_analyze,
+    new_request_id,
 )
 from app.analyze.schema import AnalyzeResponse
 from app.analyze.stages import STAGE_ORDER, StageTimer, bind_stage_timer, serialize_header
@@ -48,7 +51,9 @@ from app.session import (
     extract_cohorts,
     session_from_response,
 )
+from app.session.workspace import make_workspace
 from app.spreadsheet.llm import HttpChatClient, LLMConfig, LLMConfigError
+from app.spreadsheet.planner import bind_plan_op_listener
 
 logger = logging.getLogger(__name__)
 
@@ -224,16 +229,57 @@ async def analyze_stream(
 
     async def runner() -> None:
         keep_workspace = False
+
+        def on_finalize_token(delta: str) -> None:
+            # Live `summary` deltas while the finalize LLM streams its
+            # JSON response. See the analogous block in
+            # api/follow_up.py for the rationale; both endpoints emit
+            # the same `partial` event shape.
+            emit({
+                "type": "partial",
+                "field": "summary",
+                "delta": delta,
+            })
+
+        def on_finalize_finding(value: dict) -> None:
+            emit({
+                "type": "partial",
+                "field": "finding",
+                "value": value,
+            })
+
+        def on_finalize_recommendation(text: str) -> None:
+            emit({
+                "type": "partial",
+                "field": "recommendation",
+                "text": text,
+            })
+
+        def on_plan_op(kind: str) -> None:
+            # Each op kind in the planner's streaming JSON triggers a
+            # chip on the frontend so the user sees concrete progress
+            # ("已规划 load → group_by → aggregate") instead of staring
+            # at an opaque "正在规划" spinner. See planner._PlanOpEmitter.
+            emit({
+                "type": "partial",
+                "field": "plan_op",
+                "kind": kind,
+            })
+
         try:
             # Synthesise the first stage's "start" before the handler
             # begins so the UI shows row 1 spinning immediately.
             emit({"type": "stage", "name": STAGE_ORDER[0], "status": "start"})
             timer: StageTimer | None = None
             try:
-                with bind_stage_timer(listener=on_stage) as timer:
-                    analyze_response = await handle_analyze(
-                        prep.analyze_request, chat_client=prep.chat_client
-                    )
+                with bind_plan_op_listener(on_plan_op):
+                    with bind_finalize_token_listener(on_finalize_token):
+                     with bind_finalize_finding_listener(on_finalize_finding):
+                      with bind_finalize_recommendation_listener(on_finalize_recommendation):
+                        with bind_stage_timer(listener=on_stage) as timer:
+                            analyze_response = await handle_analyze(
+                                prep.analyze_request, chat_client=prep.chat_client
+                            )
                 _finalize_session(prep, analyze_response)
                 keep_workspace = True
                 emit({
@@ -432,7 +478,14 @@ async def _prepare_request_or_raise(
         )
 
     filename = _safe_filename(file.filename or "upload.csv")
-    workspace = Path(tempfile.mkdtemp(prefix="tabletalker-analyze-"))
+    # Generate the response_id up front so the workspace dir is keyed
+    # by it. This makes resume after a backend restart trivial: the
+    # session id is on disk, in the URL, and in the SQLite metadata
+    # row — no hidden uuid mapping needed. `make_workspace` uses the
+    # persistent root (PVC-mounted in k8s, env-overridable in dev) and
+    # falls back to tempdir when no persistent storage is configured.
+    request_id = new_request_id()
+    workspace = make_workspace(request_id)
     try:
         target = workspace / filename
         # Round-7 (CodeRabbit #15): the primary upload also gets the
@@ -507,6 +560,7 @@ async def _prepare_request_or_raise(
             sampling_rate=sampling_rate,
             sampling_note=clean_note,
             extra_filenames=tuple(extra_filenames),
+            request_id=request_id,
         )
     except BaseException:
         # Clean up the workspace before re-raising — the caller doesn't
@@ -554,7 +608,8 @@ def _finalize_session(prep: _PreparedAnalyze, analyze_response: AnalyzeResponse)
     # braces in case a future refactor changes that contract — losing a
     # history row should never 500 the actual analysis response.
     try:
-        get_session_recorder().record_parent(
+        recorder = get_session_recorder()
+        recorder.record_parent(
             analyze_response,
             primary_filename=prep.filename,
             extra_filenames=prep.extra_filenames,
@@ -562,6 +617,10 @@ def _finalize_session(prep: _PreparedAnalyze, analyze_response: AnalyzeResponse)
             sampling_rate=prep.sampling_rate,
             sampling_note=prep.clean_note,
         )
+        # Rich state for resume after backend restart. Same recorder
+        # instance, same defensive failure-swallowing semantics.
+        from app.session.serde import session_to_dict
+        recorder.record_state(session.id, session_to_dict(session))
     except Exception:  # side-channel; never fail the request
         logger.exception(
             "history recorder: parent persist raised for %s",
