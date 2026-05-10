@@ -179,6 +179,7 @@ class HttpChatClient:
         temperature: float = 0.1,
         max_tokens: int = 2000,
         response_format: dict[str, Any] | None = None,
+        enable_thinking: bool = False,
     ) -> AsyncIterator[str]:
         """Yield token deltas as the gateway streams them.
 
@@ -187,6 +188,15 @@ class HttpChatClient:
         carries the next token fragment, and a terminal `data: [DONE]`
         signals the end. We yield each non-empty content delta as a
         plain `str` so callers don't depend on the SSE shape.
+
+        `enable_thinking` defaults to False because the gateway-default
+        Qwen models are reasoning-enabled: the first N seconds of frames
+        carry only `delta.reasoning_content`, and `delta.content` stays
+        empty until the model finishes thinking. For a token-by-token
+        UI reveal this looks identical to a buffered response — the
+        spinner sits on "生成结论摘要" with nothing flowing, then the
+        final summary lands all at once when reasoning ends. Disabling
+        thinking surfaces real `content` deltas from frame 1.
 
         Transport: goes DIRECTLY through `httpcore.AsyncConnectionPool`,
         matching `chat()`'s `_HttpcoreTransport`. Both `aigw.asiainfo.com`
@@ -211,6 +221,11 @@ class HttpChatClient:
         }
         if response_format is not None:
             payload["response_format"] = response_format
+        # Disable thinking by default — see docstring. The aigw gateway
+        # accepts this as a top-level field for the Qwen family; other
+        # gateways may ignore it harmlessly.
+        if not enable_thinking:
+            payload["enable_thinking"] = False
 
         url = f"{self._config.base_url}/chat/completions"
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
