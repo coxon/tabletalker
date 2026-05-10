@@ -551,6 +551,7 @@ export default function V2AnalyzePage() {
     setPhase({ name: "uploading" });
     resetProgress();
     setPendingQuestion(trimmed);
+    setQuestion("");
     const form = new FormData();
     // Backend treats the first file as the primary table (analyzer
     // entry point); auxiliaries land under `extra_files` and the
@@ -671,6 +672,7 @@ export default function V2AnalyzePage() {
     setPhase({ name: "follow_up" });
     resetProgress();
     setPendingQuestion(trimmed);
+    setQuestion("");
     try {
       const response = await fetch("/api/follow-up/stream", {
         method: "POST",
