@@ -25,7 +25,8 @@ Next.js 前端
   ├─ /history     历史分析
   ├─ /batch       批量评测
   ├─ /reports     报告列表
-  └─ /status      服务状态
+  ├─ /status      服务状态
+  └─ /self-test   自测报告（独立页，无侧栏）
   │
   ▼
 FastAPI 后端
@@ -33,6 +34,7 @@ FastAPI 后端
   ├─ /v1/follow-up     追问
   ├─ /v1/batch         批量
   ├─ /v1/sessions      历史
+  ├─ /v1/self-test/*   自测报告 (HTML/MD/JSONL/XLSX)
   └─ /reports/{id}.html
       │
       ├─ Profiler
@@ -104,6 +106,7 @@ FastAPI 后端
 | 网络 | 除声明的 LLM 网关外，分析路径不需要外部网络 |
 | 持久化 | 历史记录用 SQLite；追问热状态用内存 LRU + TTL |
 | 批量兜底 | `/v1/batch` + `eval/render_official_predictions.py` CLI 支持 §5.2 官方 jsonl 输入 |
+| 部署形态 | `运行脚本/start.sh`（源码）· `docker compose up`（compose）· `kubectl/oc apply -f k8s/ -n <ns>`（manifest 不绑命名空间，本地 / 生产可复用同一份） |
 
 ## 7. 已知缺口
 

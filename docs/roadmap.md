@@ -36,7 +36,7 @@ TableTalker 以小步 PR 推进，最终提交目标是 2026-05-10 18:00（中�
 
 | 项 | 状态 |
 |---|---|
-| 公网免登录 URL 可访问 | ☐ |
+| 公网免登录 URL 可访问 | ✅ https://table-talker-frontend-ai-llm.apps.dc2.asiainfo.com/ |
 | 自测报告反映真实测量 | ✅ |
 | `架构文档/design_doc.md` 已对齐当前架构 | ✅ |
 | `演示视频/` 包含最终 demo | ☐ |
@@ -48,9 +48,8 @@ TableTalker 以小步 PR 推进，最终提交目标是 2026-05-10 18:00（中�
 
 ## 当前最高优先级
 
-1. 补公网 URL 并写入 README。
-2. 录制并提交 DEMO 视频。
-3. 在 aigw + reasoning 模式下重跑 20 题，把 PR #21-#23 的能力变化反映到
+1. 录制并提交 DEMO 视频。
+2. 在 aigw + reasoning 模式下重跑 20 题，把 PR #21-#23 的能力变化反映到
    `自测报告/latest_evaluation_metrics.md`（当前自测报告仍是 5/8 的
    89/100 数据，PR #21-#23 之后的能力变化未体现）。
-4. 提交前合并到默认分支并设为送测分支。
+3. 提交前合并到默认分支并设为送测分支。

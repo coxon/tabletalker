@@ -1,0 +1,57 @@
+# Local docker-compose deployment for TableTalker.
+#
+# Usage:
+#   docker compose up --build       # builds + boots backend on :8000, frontend on :3000
+#   docker compose down             # stop, keep the sessions volume
+#   docker compose down -v          # stop + drop the sessions volume
+#
+# The .env file is loaded into the backend so LLM_BASE_URL / LLM_API_KEY /
+# LLM_MODEL match local dev. The frontend talks to the backend over the
+# compose network at http://backend:8000 (routed via Next.js rewrites in
+# next.config.mjs).
+
+services:
+  backend:
+    build:
+      # Repo root context so the Dockerfile can COPY both 源代码/backend/
+      # and the self-test data dirs (自测报告/ + eval/runs/).
+      context: .
+      dockerfile: 源代码/backend/Dockerfile
+    image: tabletalker-backend:local
+    container_name: tabletalker-backend
+    env_file:
+      - .env
+    environment:
+      # Override APP_PUBLIC_URL so report_html_url is rebuilt against the
+      # host port mapping rather than the stale local-dev value.
+      APP_PUBLIC_URL: http://localhost:8000
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist session history (sqlite) across container restarts.
+      - sessions-data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health',timeout=2).status==200 else 1)\""]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./源代码/frontend
+    image: tabletalker-frontend:local
+    container_name: tabletalker-frontend
+    environment:
+      BACKEND_URL: http://backend:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  sessions-data:
+    driver: local

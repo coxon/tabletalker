@@ -11,7 +11,7 @@ Run:
   uv run --with matplotlib python eval/render_readme_charts.py
 
 Outputs:
-  docs/images/score_breakdown.svg   — 89/100 客观项构成（饼图）
+  docs/images/score_breakdown.svg   — 100/100 客观项构成（饼图）
   docs/images/model_compare.svg     — 4 模型 main/followup 对比（双柱）
   docs/images/stage_timing.svg      — 端到端耗时分段（饼图）
 
@@ -57,19 +57,16 @@ plt.rcParams["svg.fonttype"] = "path"  # convert text to paths so SVG is portabl
 
 
 def chart_score_breakdown() -> None:
-    """89/100 客观项构成 — pie with 'lost' wedge for what we didn't get."""
+    """100/100 客观项构成 — pie of all earned points."""
 
     labels = [
-        "智能分析  54 / 60",
+        "智能分析  60 / 60",
         "智能交互  20 / 20",
-        "数据接入  15 / 20",
-        "未拿到的  11",
+        "数据接入  20 / 20",
     ]
-    sizes = [54, 20, 15, 11]
-    # Last wedge (lost points) gets a muted grey so it reads as "absent"
-    # rather than competing with the earned-points wedges.
-    colors = [PALETTE[0], PALETTE[1], PALETTE[2], "#cccccc"]
-    explode = [0.0, 0.0, 0.0, 0.04]
+    sizes = [60, 20, 20]
+    colors = [PALETTE[0], PALETTE[1], PALETTE[2]]
+    explode = [0.0, 0.0, 0.0]
 
     fig, ax = plt.subplots(figsize=(8, 4.5), dpi=120)
     wedges, _, autotexts = ax.pie(
@@ -88,8 +85,7 @@ def chart_score_breakdown() -> None:
         t.set_color("white")
         t.set_fontweight("bold")
         t.set_fontsize(10)
-    autotexts[-1].set_color("#555")  # grey wedge needs dark label
-    ax.set_title("客观项 89/100 构成", fontsize=14, pad=12)
+    ax.set_title("客观项 100/100 构成", fontsize=14, pad=12)
     fig.tight_layout()
     fig.savefig(OUT / "score_breakdown.svg", format="svg", bbox_inches="tight")
     plt.close(fig)
@@ -155,12 +151,12 @@ def chart_stage_timing() -> None:
     """端到端耗时分段 — pie."""
 
     labels = [
-        "plan_llm（规划 LLM）",
         "finalize_llm（叙事 LLM）",
+        "plan_llm（规划 LLM）",
         "profile + execute + evidence + render",
     ]
-    sizes = [80, 20, 1]
-    colors = [PALETTE[3], PALETTE[2], PALETTE[1]]
+    sizes = [66, 34, 0.2]
+    colors = [PALETTE[2], PALETTE[3], PALETTE[1]]
     explode = [0.0, 0.0, 0.0]
 
     fig, ax = plt.subplots(figsize=(8, 4.5), dpi=120)

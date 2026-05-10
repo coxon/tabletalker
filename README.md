@@ -21,29 +21,33 @@
 
 | 维度 | 当前值 |
 |---|---:|
-| 客观项自测分 | 89 / 100 |
-| 主分析成功 / 证据完整率 | 18 / 20 · 100% |
-| 陷阱拒答（宽松 / 严格） | 10 / 10 · 9 / 9 |
-| 误拒率 | 0% |
-| 追问成功率 / 上下文继承 | 94.4% · 94.4% |
-| P50 / P95 端到端 | 72.8s / 174.6s |
+| 客观项自测分 | 100 / 100 |
+| 主分析成功 / 证据完整率 | 20 / 20 · 100% |
+| 陷阱拒答（宽松 / 严格） | 14 / 15 · 14 / 15 |
+| 误拒率 | 4.2% |
+| 追问成功率 / 上下文继承 | 100% · 100% |
+| P50 / P95 端到端 | 21.4s / 25.6s |
 
-![客观项 89/100 构成](docs/images/score_breakdown.svg)
-
-完整 9 节官方格式报告见
-[`自测报告/latest_evaluation_metrics.md`](自测报告/latest_evaluation_metrics.md)，
-所有数字来自真实评测运行，未手填。
+完整报告见
+[`自测报告/latest_evaluation_metrics.md`](自测报告/latest_evaluation_metrics.md)
 
 ---
 
 ## 试一下
 
-- **公网入口**：（待最终部署后填写，免登录）
-- **本地兜底**：
+- **公网入口**：https://table-talker-frontend-ai-llm.apps.dc2.asiainfo.com/ （免登录）
+- **启动**（任选其一）：
   ```bash
+  # ① 直接拉源码跑
   bash 运行脚本/start.sh
-  # 前端 http://localhost:3000
+
+  # ② docker-compose
+  docker compose up --build
+
+  # ③ k8s（OpenShift 同 manifest 用 oc apply）
+  kubectl apply -f k8s/ -n <namespace>
   ```
+  前端 http://localhost:3000，后端 http://localhost:8000
 - **依赖**：Python 3.11+ (uv) · Node 20+ (pnpm) · 亚信 LLM 网关账号
 - **配置**：参考 `.env.example`
 

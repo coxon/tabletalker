@@ -40,20 +40,20 @@
 | 扩展性 | 12 | typed op schema、chart factory、batch/session API | 较好：新增 op/chart 影响局部，但没有插件运行时 |
 | 性能设计 | 8 | `app/analyze/stages.py`, `X-Stage-Timings`, 上传限制, LLM timeout | 可观测但慢：P95 174.6s，瓶颈在 LLM |
 | 安全设计 | 8 | LLM 不写代码、上传路径隔离、表达式 DSL、代理信任控制 | 满足赛事范围；免登录是赛事要求 |
-| 交互创新 | 8 | Web 界面、报告、追问、历史 | 较好；公网 URL 和演示视频待补 |
+| 交互创新 | 8 | Web 界面、报告、追问、历史 | 较好；公网 URL 已上线，演示视频待补 |
 | 数据处理创新 | 8 | 数据剖析、类型化计划、结构化证据 | 较好；JSON 嵌套仍是缺口 |
 | 分析算法 | 15 | 类型化规划器、证据构造器、拒答 | 较好；TMDB JSON 和根因深度是风险 |
 | 报告设计 | 5 | ECharts 报告渲染器 | 较好；热力图、箱线图尚未输出 |
 | 架构文档 | 5 | `架构文档/design_doc.md` | 基本就绪；数据库字典可更显式 |
 | DEMO 视频 | 5 | `演示视频/` | 缺失，只有 `.gitkeep` |
 | 自测报告 | 5 | `自测报告/latest_evaluation_metrics.md` | 最新且可追溯 |
-| Git 质量 | 5 | README, LICENSE, 结构, 测试 | 较好；README 仍需填公网 URL |
+| Git 质量 | 5 | README, LICENSE, 结构, 测试 | 较好 |
 
 ## 官方高风险条款
 
 | 官方风险 | 当前缓解 | 剩余缺口 |
 |---|---|---|
-| URL 不可访问 | `start.sh` 可本地启动，`APP_PUBLIC_URL` 已配置 | 仍需公网免登录 URL |
+| URL 不可访问 | `start.sh` 可本地启动，公网 URL 已上线（OpenShift Route，HTTPS edge） | — |
 | evidence 幻觉 | 数值来自 typed-op 执行和 `OpResult` | JSON 嵌套字段仍可能导致差计划 |
 | 错误拒答 | 硬信号拒答 + 缺失列执行错误转拒答 | 诱导幻觉 / 越权样本需扩充 |
 | JSON 嵌套字段 | 已列为限制 | TMDB cast/crew/genres 需实现或清晰降级 |
@@ -63,7 +63,7 @@
 
 ## 测试位置
 
-多数测试在 `src/backend/tests/`，不是根目录 `tests/`。常用入口：
+多数测试在 `源代码/backend/tests/`，不是根目录 `tests/`。常用入口：
 
 - `test_analyze_api.py`
 - `test_analyze_evidence.py`

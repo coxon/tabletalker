@@ -1,5 +1,5 @@
 """Quick smoke test: POST to /v1/batch with the quick manifest + 3 files.
-Run from repo root:  cd src/backend && uv run python ../../eval/batch-test/test_upload.py
+Run from repo root:  cd 源代码/backend && uv run python ../../eval/batch-test/test_upload.py
 """
 import httpx, sys, pathlib
 
