@@ -43,13 +43,19 @@ def _evidence_to_dict(ev: Evidence) -> dict[str, Any]:
 
 
 def _evidence_from_dict(d: dict[str, Any]) -> Evidence:
+    # `value` is required by the schema (`...`), but a legacy session
+    # row from before this field was strict could still be missing it
+    # — coerce to "" rather than crash the resume path.
+    raw_value = d.get("value")
+    if raw_value is None:
+        raw_value = ""
     return Evidence(
         dataset=str(d.get("dataset", "")),
         table=str(d.get("table", "")),
         columns=[str(c) for c in (d.get("columns") or [])],
         filters=str(d.get("filters", "")),
         aggregation=str(d.get("aggregation", "")),
-        value=d.get("value"),
+        value=raw_value,
         row_count=d.get("row_count"),
     )
 

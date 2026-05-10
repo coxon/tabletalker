@@ -394,6 +394,7 @@ async def make_plan(client: ChatClient, req: PlanRequest) -> Plan:
         listener = _plan_op_listener.get()
         can_stream = listener is not None and hasattr(client, "chat_stream")
         if can_stream:
+            assert listener is not None  # narrowed by can_stream
             emitter = _PlanOpEmitter(listener)
             buf = ""
             try:

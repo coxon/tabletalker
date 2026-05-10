@@ -1588,6 +1588,10 @@ async def _finalize(
     can_stream = listener is not None and hasattr(client, "chat_stream")
     raw: str
     if can_stream:
+        # `can_stream` already implies `listener is not None`, but
+        # pyright doesn't narrow across the `and hasattr(...)` clause
+        # — assert so the emitter ctors don't see Optional.
+        assert listener is not None
         # Three concurrent emitters scanning the SAME accumulating
         # buffer: tokens for the summary string, structured items
         # for the findings array, and structured items for the
