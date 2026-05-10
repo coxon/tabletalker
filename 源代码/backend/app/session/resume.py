@@ -25,7 +25,6 @@ When any check fails, returns None — the caller decides whether to
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 from app.persistence import get_session_recorder
 from app.session.serde import session_from_dict

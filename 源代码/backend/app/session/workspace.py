@@ -38,7 +38,17 @@ from pathlib import Path
 # ids the handler emits match this charset; we still validate
 # defensively because workspace paths come from user-controlled
 # request_id arguments in some code paths.
+#
+# The character class above accepts `.` so timestamped ids like
+# `20260510.1234` pass — but that means literal `.` and `..` (and
+# `....` etc.) also match. `make_workspace("..")` would then resolve
+# to `<root>/..`, escaping the workspace root entirely; CodeRabbit
+# (PR #22) flagged this as a real path-traversal opening. The regex
+# stays permissive (changing it would break existing session ids on
+# disk); the `_FORBIDDEN_SEGMENTS` set rejects the specific dotted
+# strings that mean "parent directory" on POSIX/Windows.
 _SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_.\-]+$")
+_FORBIDDEN_SEGMENTS = frozenset({".", ".."})
 
 
 def resolve_workspace_root() -> Path | None:
@@ -66,6 +76,8 @@ def make_workspace(session_id: str) -> Path:
     """
 
     if not _SESSION_ID_RE.match(session_id):
+        raise ValueError(f"unsafe session_id for workspace path: {session_id!r}")
+    if session_id in _FORBIDDEN_SEGMENTS:
         raise ValueError(f"unsafe session_id for workspace path: {session_id!r}")
 
     root = resolve_workspace_root()

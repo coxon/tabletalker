@@ -20,8 +20,8 @@ TTL sweep and the resume would be pointless).
 
 from __future__ import annotations
 
-import time
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
